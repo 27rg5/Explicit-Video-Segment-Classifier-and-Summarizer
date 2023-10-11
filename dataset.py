@@ -46,7 +46,7 @@ class VideoClipDataset(Dataset):
         assert len(audio_enc_path)==1
         audio_enc_path = audio_enc_path[0]
         class_audio_enc = audio_enc_path.split('/')[-4]
-        video_path = os.path.join(self.all_non_encoded_videos_path, class_audio_enc, self.encoded_videos[index].split('/')[-1])
+        video_path = os.path.join(self.all_non_encoded_videos_path, self.encoded_videos[index].split('/')[-1])
         spectrogram_enc_path = glob.glob(os.path.join(self.encoded_videos[index], 'spectro_encs/*'))
         assert len(spectrogram_enc_path)==1
         spectrogram_enc_path = spectrogram_enc_path[0]

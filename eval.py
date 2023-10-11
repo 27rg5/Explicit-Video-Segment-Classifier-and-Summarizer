@@ -15,18 +15,15 @@ from models import LanguageModel, UnifiedModel, SpectrogramModel
 from torcheval.metrics.functional import multiclass_f1_score
 
 def inference_on_val(non_encoded_videos_path, val_encoded_videos_pkl, classes, checkpoint_path, root_dir_path, EncodeVideo_obj, experiment_name=None, get_classified_list=None, language_model_name='distilbert-base-uncased', video_model_name='slowfast_r50', spectrogram_model_name='resnet18', device='cuda:0'):
-    #LanguageModel_obj = LanguageModel(model_name = language_model_name)
-    #VideoModel_obj = VideoModel(model_name = video_model_name)
+    LanguageModel_obj = LanguageModel(model_name = language_model_name)
+    VideoModel_obj = VideoModel(model_name = video_model_name)
     SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
     batch_size = 1
     softmax = nn.Softmax(dim=1)
     in_dims = 600
-    #in_dims = 500
     intermediate_dims = 50
-    #UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, LanguageModel_obj, VideoModel_obj).to(device)#, SpectrogramModel_obj).to(device)
-    #UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, VideoModel_obj).to(device)#, SpectrogramModel_obj).to(device)
-    #UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, LanguageModel_obj).to(device)#, SpectrogramModel_obj).to(device)
-    UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, SpectrogramModel_obj).to(device)#, SpectrogramModel_obj).to(device)
+    UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj).to(device)
+    
     
     UnifiedModel_obj.load_state_dict(torch.load(checkpoint_path), strict=True)
     UnifiedModel_obj.eval()
@@ -52,13 +49,9 @@ def inference_on_val(non_encoded_videos_path, val_encoded_videos_pkl, classes, c
     videos = list()
     for i, modality_inputs in tqdm(enumerate(val_dataloader)):
         with torch.no_grad():
-            #video_path, transformed_video, processed_speech, spectrogram_enc, target = modality_inputs
-            #video_path, transformed_video, processed_speech, target = modality_inputs
-            #video_path, transformed_video, target = modality_inputs
-            video_path, spectrogram_enc, target = modality_inputs
+            video_path, transformed_video, processed_speech, spectrogram_enc, target = modality_inputs
             target = target.to(device)
-            #predictions = UnifiedModel_obj(processed_speech, transformed_video)#, spectrogram_enc)
-            predictions = UnifiedModel_obj(spectrogram_enc)#, spectrogram_enc)
+            predictions = UnifiedModel_obj(processed_speech, transformed_video, spectrogram_enc)
             pred_softmax = softmax(predictions)
             pred_softmax = torch.argmax(pred_softmax, dim=1)
             preds_val.append(pred_softmax.cpu().item())
