@@ -3,7 +3,6 @@ import torch.nn as nn
 #import torchvision.transforms as T
 from transformers import AutoModelForSequenceClassification
 
-#class VideoModel(nn.Module):
 class VideoModel(nn.Module):
     def __init__(self, model_name='slowfast_r50', pretrained=True, demo=False) -> None:
         super().__init__()
@@ -20,7 +19,6 @@ class VideoModel(nn.Module):
         pred = self.model(x)
         return pred
 
-#class SpectrogramModel(nn.Module):
 class SpectrogramModel(nn.Module):
     def __init__(self, model_name='resnet18', pretrained=True, demo=False):
         super().__init__()
@@ -54,8 +52,6 @@ class LanguageModel(nn.Module):
 
             @param tokenized_text: Text tokenized using BERT
         """
-        ## WORKAROUND! NOT AT ALL RECOMMENDED, STILL TRYIN TO FIGURE OUT WHY THE BELOW TWO LINES ARE NEEDED FOR LANGUAGE MODEL
-        #pdb.set_trace()
         if not self.demo:
             tokenized_text['input_ids'] = tokenized_text['input_ids'].squeeze(0)
             tokenized_text['attention_mask'] = tokenized_text['attention_mask'].squeeze(0)
@@ -66,11 +62,26 @@ class LanguageModel(nn.Module):
         x = self.model(**tokenized_text).logits
         return x
 
+class LateFusionWithAttention(nn.Module):
+    def __init__(self, hidden_dim, output_dim):
+        super(LateFusionWithAttention, self).__init__()
+        self.hidden_dim = hidden_dim 
+        self.output_dim = output_dim 
+        self.multiheadattention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=1)
+
+    def forward(self, language_model_out, video_classifier_out, audio_classifier_out):
+        atten1 = self.multiheadattention(language_model_out, video_classifier_out, audio_classifier_out)
+        atten2 = self.multiheadattention(language_model_out, audio_classifier_out, video_classifier_out)
+        atten3 = self.multiheadattention(audio_classifier_out, video_classifier_out, language_model_out)
+        atten4 = self.multiheadattention(audio_classifier_out, language_model_out, video_classifier_out)
+        atten5 = self.multiheadattention(video_classifier_out, language_model_out, audio_classifier_out)
+        atten6 = self.multiheadattention(video_classifier_out, audio_classifier_out, language_model_out)
+
+        mean_attention = torch.mean(torch.cat([atten1, atten2, atten3, atten4, atten5, atten6], dim=0), 0)
+        return mean_attention
+
 class UnifiedModel(nn.Module):
     def __init__(self, in_dims=None, intermediate_dims=None, LanguageModel_obj=None, VideModel_obj=None, SpectrogramModel_obj=None):
-    #def __init__(self, in_dims=None, intermediate_dims=None, VideModel_obj=None):
-    #def __init__(self, in_dims=None, intermediate_dims=None, LanguageModel_obj=None):
-    #def __init__(self, in_dims=None, intermediate_dims=None, SpectrogramModel_obj=None):
         """
             Description: A unified model that takes language model output , video_classifier output and audio_classifier output. Here audio_classifier output is spectrogram
 
@@ -82,19 +93,17 @@ class UnifiedModel(nn.Module):
             
         """
         super(UnifiedModel, self).__init__()
-        self.in_dims = in_dims #dim_lang_model + dim_video_classifier + dim_audio_classifier
-        self.intermediate_dims = intermediate_dims #obtained after linear layer on in_dims
+        # self.in_dims = in_dims #dim_lang_model + dim_video_classifier + dim_audio_classifier
+        # self.intermediate_dims = intermediate_dims #obtained after linear layer on in_dims
         self.num_classes = 2
         self.LanguageModel_obj = LanguageModel_obj
         self.VideModel_obj = VideModel_obj
         self.SpectrogramModel_obj = SpectrogramModel_obj
+        self.latefusionwithattention = LateFusionWithAttention(in_dims, intermediate_dims)
         self.linear1 = nn.Linear(self.in_dims, self.intermediate_dims)
         self.linear2 = nn.Linear(self.intermediate_dims, self.num_classes)
 
     def forward(self, language_model_in, video_classifier_in, audio_classifier_in):
-    #def forward(self, video_classifier_in):#, audio_classifier_in):
-    #def forward(self, language_model_in):#, audio_classifier_in):
-    #def forward(self, audio_classifier_in):
         """
             Description: Forward function takes language model output , video_classifier output and audio_classifier output
 
@@ -105,16 +114,11 @@ class UnifiedModel(nn.Module):
 
         language_model_out = self.LanguageModel_obj(language_model_in)
         video_classifier_out = self.VideModel_obj(video_classifier_in)
-        #x = self.VideModel_obj(video_classifier_in)
-        #x = self.LanguageModel_obj(language_model_in)
         audio_classifier_out = self.SpectrogramModel_obj(audio_classifier_in)
-        #x = self.SpectrogramModel_obj(audio_classifier_in)
-        x = torch.cat((language_model_out, video_classifier_out, audio_classifier_out), axis=-1)
-        #x = torch.cat((language_model_out, video_classifier_out), axis=-1)
-        
+    
+        x = self.latefusionwithattention(language_model_out, video_classifier_out, audio_classifier_out)
         x = self.linear1(x)
         x = self.linear2(x)
-        #x = self.sigmoid(x)
         return x
 
 
