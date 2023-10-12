@@ -5,7 +5,7 @@ from transformers import AutoModelForSequenceClassification
 
 #class VideoModel(nn.Module):
 class VideoModel(nn.Module):
-    def __init__(self, model_name='slowfast_r101', pretrained=True, demo=False) -> None:
+    def __init__(self, model_name='slowfast_r50', pretrained=True, demo=False) -> None:
         super().__init__()
 
         self.model = torch.hub.load('facebookresearch/pytorchvideo', model_name, pretrained=pretrained)
@@ -22,10 +22,10 @@ class VideoModel(nn.Module):
 
 #class SpectrogramModel(nn.Module):
 class SpectrogramModel(nn.Module):
-    def __init__(self, model_name='vggish', pretrained=True, demo=False):
+    def __init__(self, model_name='resnet18', pretrained=True, demo=False):
         super().__init__()
-        self.model = torch.hub.load('harritaylor/torchvggish', model_name)
-        self.model._modules['fc'] = nn.Linear(in_features=128, out_features=200)
+        self.model = torch.hub.load('pytorch/vision:v0.10.0', model_name, pretrained=pretrained)
+        self.model._modules['fc'] = nn.Linear(in_features=512, out_features=200)
         self.demo = demo
 
     def forward(self, x):
@@ -35,7 +35,7 @@ class SpectrogramModel(nn.Module):
 
 
 class LanguageModel(nn.Module):
-    def __init__(self, model_name="roberta-base", output_attentions=True, demo=False):
+    def __init__(self, model_name="distilbert-base-uncased", output_attentions=True, demo=False):
         """
             Description: Language model which takes input as processed_speech from dataset I have defined and gives the final attention layers as output
             @param model_name: Pretrained model name
@@ -54,8 +54,6 @@ class LanguageModel(nn.Module):
 
             @param tokenized_text: Text tokenized using BERT
         """
-        ## WORKAROUND! NOT AT ALL RECOMMENDED, STILL TRYIN TO FIGURE OUT WHY THE BELOW TWO LINES ARE NEEDED FOR LANGUAGE MODEL
-        #pdb.set_trace()
         if not self.demo:
             tokenized_text['input_ids'] = tokenized_text['input_ids'].squeeze(0)
             tokenized_text['attention_mask'] = tokenized_text['attention_mask'].squeeze(0)
@@ -88,6 +86,7 @@ class UnifiedModel(nn.Module):
         self.LanguageModel_obj = LanguageModel_obj
         self.VideModel_obj = VideModel_obj
         self.SpectrogramModel_obj = SpectrogramModel_obj
+        self.relu1 = nn.ReLU()
         self.linear1 = nn.Linear(self.in_dims, self.intermediate_dims)
         self.linear2 = nn.Linear(self.intermediate_dims, self.num_classes)
 
@@ -111,8 +110,8 @@ class UnifiedModel(nn.Module):
         #x = self.SpectrogramModel_obj(audio_classifier_in)
         x = torch.cat((language_model_out, video_classifier_out, audio_classifier_out), axis=-1)
         #x = torch.cat((language_model_out, video_classifier_out), axis=-1)
-        
         x = self.linear1(x)
+        x = self.relu1(x) 
         x = self.linear2(x)
         #x = self.sigmoid(x)
         return x
