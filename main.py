@@ -215,9 +215,10 @@ if __name__=='__main__':
     VideoModel_obj = VideoModel(model_name = video_model_name)
     SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
 
-    in_dims = 600
+    in_dims_for_attention = 200
+    out_dims_after_attention = 1200    
     intermediate_dims = 50
-    UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj).to(device)
+    UnifiedModel_obj = UnifiedModel(in_dims_for_attention, out_dims_after_attention, intermediate_dims, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj).to(device)
     #UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, VideoModel_obj).to(device)
     #UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, LanguageModel_obj).to(device)
     #UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, SpectrogramModel_obj).to(device)
