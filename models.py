@@ -13,6 +13,7 @@ class VideoModel(nn.Module):
         #self.t = T.Resize()
 
     def forward(self, x):
+        
         if not self.demo:
             x = [elem.squeeze(0) for elem in x]
         
@@ -27,6 +28,7 @@ class SpectrogramModel(nn.Module):
         self.demo = demo
 
     def forward(self, x):
+        
         if self.demo:
             x = x.unsqueeze(0)
         return self.model(x)
@@ -52,10 +54,12 @@ class LanguageModel(nn.Module):
 
             @param tokenized_text: Text tokenized using BERT
         """
+        
         if not self.demo:
             tokenized_text['input_ids'] = tokenized_text['input_ids'].squeeze(0)
             tokenized_text['attention_mask'] = tokenized_text['attention_mask'].squeeze(0)
         #print('\n', tokenized_text['input_ids'].size())
+        
         tokenized_text['input_ids'] = tokenized_text['input_ids'][:, :512]
         tokenized_text['attention_mask'] = tokenized_text['attention_mask'][:, :512]
 
@@ -70,6 +74,7 @@ class LateFusionWithAttention(nn.Module):
         self.multiheadattention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=1, batch_first=True)
 
     def forward(self, language_model_out, video_classifier_out, audio_classifier_out):
+        
         if not self.self_attention:
             # Pairwise attention
             atten1, _ = self.multiheadattention(language_model_out, video_classifier_out, audio_classifier_out)
@@ -108,7 +113,7 @@ class UnifiedModel(nn.Module):
         self.VideModel_obj = VideModel_obj
         self.SpectrogramModel_obj = SpectrogramModel_obj
         self.relu1 = nn.ReLU()
-        self.latefusionwithattention = LateFusionWithAttention(self.in_dims_for_attention, True)
+        self.latefusionwithattention = LateFusionWithAttention(self.in_dims_for_attention, self.self_attention)
         self.linear1 = nn.Linear(self.out_dims_after_attention, self.intermediate_dims)
         self.linear2 = nn.Linear(self.intermediate_dims, self.num_classes)
 
@@ -128,6 +133,7 @@ class UnifiedModel(nn.Module):
             language_model_out = language_model_out.unsqueeze(1)
             video_classifier_out = video_classifier_out.unsqueeze(1)
             audio_classifier_out = audio_classifier_out.unsqueeze(1)
+    
         x = self.latefusionwithattention(language_model_out, video_classifier_out, audio_classifier_out)
         
         x = self.linear1(x)

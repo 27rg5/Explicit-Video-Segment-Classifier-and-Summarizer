@@ -28,12 +28,7 @@ warnings.filterwarnings("ignore")
 def get_train_val_split_videos(root_dir, split_pct=0.2):
     
     #Split explicit_train_val videos
-    explicit_videos_before_filtering = glob.glob(os.path.join(root_dir,'explicit/*'))
-    explicit_videos = list()
-    #explicit_videos = glob.glob(os.path.join(root_dir,'explicit/*'))
-    for video in explicit_videos_before_filtering:
-        if len(glob.glob(os.path.join(video, 'audio_encs/*')))!=0:
-            explicit_videos.append(video)
+    explicit_videos = glob.glob(os.path.join(root_dir,'explicit/*/video_subclips/*'))
     explicit_indices = list(range(len(explicit_videos)))
     np.random.seed(42)
     np.random.shuffle(explicit_indices)
@@ -41,13 +36,7 @@ def get_train_val_split_videos(root_dir, split_pct=0.2):
     explicit_videos_val,  explicit_videos_train = [explicit_videos[index] for index in explicit_indices[:explicit_val_split_index]], [explicit_videos[index] for index in explicit_indices[explicit_val_split_index:]]
 
     #Split non_explicit_train_val videos
-    non_explicit_videos_before_filtering = glob.glob(os.path.join(root_dir,'non_explicit/*'))
-    non_explicit_videos = list()
-    #non_explicit_videos = glob.glob(os.path.join(root_dir,'non_explicit/*'))
-    for video in non_explicit_videos_before_filtering:
-        if len(glob.glob(os.path.join(video, 'audio_encs/*')))!=0:
-            non_explicit_videos.append(video)
-
+    non_explicit_videos = glob.glob(os.path.join(root_dir,'non_explicit/*/video_subclips/*'))
     non_explicit_indices = list(range(len(non_explicit_videos)))
     np.random.shuffle(non_explicit_indices)
     non_explicit_val_split_index = int(len(non_explicit_videos)*split_pct)
@@ -87,16 +76,10 @@ def train_val(**train_val_arg_dict):
 
         for i, modality_inputs in enumerate(train_dataloader):
             _, transformed_video, processed_speech, spectrogram, target = modality_inputs
-            #_, transformed_video, target = modality_inputs
-            #_, processed_speech, target = modality_inputs
-            #_, spectrogram, target = modality_inputs
             target = target.to(device)
 
             optimizer.zero_grad()
             predictions = unifiedmodel_obj(processed_speech, transformed_video, spectrogram)
-            #predictions = unifiedmodel_obj(transformed_video)
-            #predictions = unifiedmodel_obj(processed_speech)
-            #predictions = unifiedmodel_obj(spectrogram)
             batch_loss = loss_(predictions, target)
             batch_loss.backward()
             optimizer.step()
@@ -133,15 +116,9 @@ def train_val(**train_val_arg_dict):
         for i, modality_inputs in enumerate(val_dataloader):
             with torch.no_grad():
                 _, transformed_video, processed_speech,spectrogram, target = modality_inputs
-                #_, transformed_video, target = modality_inputs
-                #_, processed_speech, target = modality_inputs
-                #_, spectrogram, target = modality_inputs
                 target = target.to(device)
 
                 predictions = unifiedmodel_obj(processed_speech, transformed_video, spectrogram)
-                #predictions = unifiedmodel_obj(transformed_video)
-                #predictions = unifiedmodel_obj(processed_speech)
-                #predictions = unifiedmodel_obj(spectrogram)
                 batch_loss = loss_(predictions, target)
                 pred_softmax = softmax(predictions)
                 pred_softmax = torch.argmax(pred_softmax, dim=1)
@@ -186,6 +163,7 @@ if __name__=='__main__':
     parser.add_argument('--experiment_name',type=str)
     parser.add_argument('--batch_size',type=int)
     parser.add_argument('--print_every',type=int)
+    parser.add_argument('--pairwise_attention_modalities', action='store_true')
     args = parser.parse_args()
 
     device = torch.device('cuda:0')
@@ -199,6 +177,7 @@ if __name__=='__main__':
     print_every = args.print_every
     experiment_name = args.experiment_name
     batch_size = args.batch_size
+    pairwise_attention_modalities = args.pairwise_attention_modalities
 
     runs_dir = os.path.join(os.getcwd(),'runs')
     experiment_dir = os.path.join(runs_dir, experiment_name)
@@ -215,19 +194,19 @@ if __name__=='__main__':
     VideoModel_obj = VideoModel(model_name = video_model_name)
     SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
 
-    #Pairwise attention
-    # in_dims_for_attention = 200
-    # out_dims_after_attention = 1200    
-
-    #Concate and then self-attention
-    in_dims_for_attention = 600
-    out_dims_after_attention = 600    
+    
+    if pairwise_attention_modalities:
+        #Pairwise attention
+        in_dims_for_attention = 200
+        out_dims_after_attention = 1200    
+    else:
+        #Concate and then self-attention
+        in_dims_for_attention = 600
+        out_dims_after_attention = 600    
 
     intermediate_dims = 50
-    UnifiedModel_obj = UnifiedModel(in_dims_for_attention, out_dims_after_attention, intermediate_dims, True, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj).to(device)
-    #UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, VideoModel_obj).to(device)
-    #UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, LanguageModel_obj).to(device)
-    #UnifiedModel_obj = UnifiedModel(in_dims, intermediate_dims, SpectrogramModel_obj).to(device)
+    self_attention = not pairwise_attention_modalities
+    UnifiedModel_obj = UnifiedModel(in_dims_for_attention, out_dims_after_attention, intermediate_dims, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj).to(device)
 
 
     if optimizer_name in ['SGD','sgd']:
@@ -235,8 +214,8 @@ if __name__=='__main__':
     elif optimizer_name in ['Adam','adam']:
         optimizer = Adam(UnifiedModel_obj.parameters(), lr=learning_rate)
 
-    all_videos = glob.glob(os.path.join(root_dir,'processed_data/non_encoded_videos/*/*'))
-    encoded_videos_path = os.path.join(root_dir,'processed_data/encoded_videos')
+    all_videos = glob.glob(os.path.join(root_dir,'non_encoded_videos_sep/*/*'))
+    encoded_videos_path = os.path.join(root_dir,'encoded_videos')
     EncodeVideo_obj = EncodeVideo() 
 
     if not os.path.exists(encoded_videos_path):

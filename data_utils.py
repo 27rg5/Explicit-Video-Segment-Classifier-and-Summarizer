@@ -52,14 +52,6 @@ def divide_video_and_save_all_modalities(video_path, save_path_enc_dir, EncodeVi
     else:
         output_file = video_path
 
-    # save_path_video_subclip = os.path.join(save_dir_video, output_file.split('/')[-1].replace('.mp4','_video_subclips'))
-    # save_path_audio_enc = os.path.join(save_dir_audio, output_file.split('/')[-1].replace('.mp4','_audio_enc'))
-    # save_path_spectro_enc = os.path.join(save_dir_spectro, output_file.split('/')[-1].replace('.mp4','_spectro_enc'))
-    
-    # makedir(save_path_video_subclip)
-    # makedir(save_path_audio_enc)
-    # makedir(save_path_spectro_enc)
-
     video_clip = VideoFileClip(output_file)
     clip_duration = duration_sec
     num_chunks_trail,  num_chunks_lead = math.modf(clip_duration/60)
@@ -72,7 +64,7 @@ def divide_video_and_save_all_modalities(video_path, save_path_enc_dir, EncodeVi
         segment_clip = video_clip.subclip(start_time, end_time)
         segment_clip_path = os.path.join(save_dir_video, output_file.split('/')[-1].replace('.mp4', '_{}.mp4'.format(0)))
         segment_clip.write_videofile(segment_clip_path)
-        
+
         processed_speech = TokenizeText_obj.tokenize(GetTextFromAudio_obj.get_speech(segment_clip_path))
         pickle.dump({'processed_speech':processed_speech}, open(os.path.join(save_dir_audio, output_file.split('/')[-1].replace('.mp4', '_audio_enc_{}'.format(0))), 'wb'))
         processed_spectro = GetSpectrogramFromAudio_obj.get_spectrogram(segment_clip_path)
@@ -133,9 +125,8 @@ if __name__=='__main__':
     root_dir = os.path.join(os.path.expanduser('~'), 'cls_data_1_min')
     all_videos = glob.glob(os.path.join(root_dir,'non_encoded_videos_sep/*/*'))
     encoded_videos_path = os.path.join(root_dir,'encoded_videos/')
-    EncodeVideo_obj = EncodeVideo() 
+    EncodeVideo_obj = EncodeVideo()
     GetTextFromAudio_obj = GetTextFromAudio()
     GetSpectrogramFromAudio_obj = GetSpectrogramFromAudio()
-    TokenizeText_obj = TokenizeText()    
-    #if not os.path.exists(encoded_videos_path):
+    TokenizeText_obj = TokenizeText()
     encode_videos(all_videos, encoded_videos_path, EncodeVideo_obj, GetTextFromAudio_obj, GetSpectrogramFromAudio_obj, TokenizeText_obj)    
