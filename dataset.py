@@ -38,7 +38,7 @@ class VideoClipDataset(Dataset):
         """
     
         self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device = dataset_dict.values()
-        self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*')))} #Map class name to id
+        self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))} #Map class name to id
 
     def __getitem__(self, index):
         video_path = self.encoded_videos[index]
