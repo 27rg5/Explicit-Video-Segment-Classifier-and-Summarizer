@@ -164,6 +164,7 @@ if __name__=='__main__':
     parser.add_argument('--batch_size',type=int)
     parser.add_argument('--print_every',type=int)
     parser.add_argument('--pairwise_attention_modalities', action='store_true')
+    parser.add_argument('--vanilla_fusion', action='store_true')
     args = parser.parse_args()
 
     device = torch.device('cuda:0')
@@ -177,6 +178,7 @@ if __name__=='__main__':
     print_every = args.print_every
     experiment_name = args.experiment_name
     batch_size = args.batch_size
+    vanilla_fusion = args.vanilla_fusion
     pairwise_attention_modalities = args.pairwise_attention_modalities
 
     runs_dir = os.path.join(os.getcwd(),'runs')
@@ -197,16 +199,20 @@ if __name__=='__main__':
     
     if pairwise_attention_modalities:
         #Pairwise attention
-        in_dims_for_attention = 200
-        out_dims_after_attention = 1200    
+        in_dims = 200
+        out_dims = 1200    
+    elif vanilla_fusion:
+        #Baseline
+        in_dims = None
+        out_dims = 600
     else:
         #Concate and then self-attention
-        in_dims_for_attention = 600
-        out_dims_after_attention = 600    
+        in_dims = 600
+        out_dims = 600    
 
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities
-    UnifiedModel_obj = UnifiedModel(in_dims_for_attention, out_dims_after_attention, intermediate_dims, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj).to(device)
+    UnifiedModel_obj = UnifiedModel(out_dims, intermediate_dims, in_dims, vanilla_fusion, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj).to(device)
 
 
     if optimizer_name in ['SGD','sgd']:

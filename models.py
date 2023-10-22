@@ -92,7 +92,7 @@ class LateFusionWithAttention(nn.Module):
         return concatenated_attention
 
 class UnifiedModel(nn.Module):
-    def __init__(self, in_dims_for_attention, out_dims_after_attention, intermediate_dims, self_attention=False, LanguageModel_obj=None, VideModel_obj=None, SpectrogramModel_obj=None):
+    def __init__(self, out_dims, intermediate_dims, in_dims, vanilla_fusion=False, self_attention=False, LanguageModel_obj=None, VideModel_obj=None, SpectrogramModel_obj=None):
         """
             Description: A unified model that takes language model output , video_classifier output and audio_classifier output. Here audio_classifier output is spectrogram
 
@@ -105,16 +105,18 @@ class UnifiedModel(nn.Module):
         """
         super(UnifiedModel, self).__init__()
         self.self_attention = self_attention
-        self.in_dims_for_attention = in_dims_for_attention #dim_lang_model + dim_video_classifier + dim_audio_classifier
-        self.out_dims_after_attention = out_dims_after_attention
-        self.intermediate_dims = intermediate_dims #obtained after linear layer on in_dims
+        self.in_dims = in_dims 
+        self.out_dims = out_dims
+        self.intermediate_dims = intermediate_dims
         self.num_classes = 2
         self.LanguageModel_obj = LanguageModel_obj
         self.VideModel_obj = VideModel_obj
         self.SpectrogramModel_obj = SpectrogramModel_obj
         self.relu1 = nn.ReLU()
-        self.latefusionwithattention = LateFusionWithAttention(self.in_dims_for_attention, self.self_attention)
-        self.linear1 = nn.Linear(self.out_dims_after_attention, self.intermediate_dims)
+        self.vanilla_fusion = vanilla_fusion 
+        if not self.vanilla_fusion:
+            self.latefusionwithattention = LateFusionWithAttention(self.in_dims, self.self_attention)
+        self.linear1 = nn.Linear(self.out_dims, self.intermediate_dims)
         self.linear2 = nn.Linear(self.intermediate_dims, self.num_classes)
 
     def forward(self, language_model_in, video_classifier_in, audio_classifier_in):
@@ -125,17 +127,20 @@ class UnifiedModel(nn.Module):
             @param video_classifier_in: the processed video input from dataset class
             @param audio_classifier_in: the processed audio input from dataset class
         """
-
+        
         language_model_out = self.LanguageModel_obj(language_model_in)
         video_classifier_out = self.VideModel_obj(video_classifier_in)
         audio_classifier_out = self.SpectrogramModel_obj(audio_classifier_in)
-        if not self.self_attention:
-            language_model_out = language_model_out.unsqueeze(1)
-            video_classifier_out = video_classifier_out.unsqueeze(1)
-            audio_classifier_out = audio_classifier_out.unsqueeze(1)
-    
-        x = self.latefusionwithattention(language_model_out, video_classifier_out, audio_classifier_out)
+        if not self.vanilla_fusion:
+            if not self.self_attention:
+                language_model_out = language_model_out.unsqueeze(1)
+                video_classifier_out = video_classifier_out.unsqueeze(1)
+                audio_classifier_out = audio_classifier_out.unsqueeze(1)
         
+            x = self.latefusionwithattention(language_model_out, video_classifier_out, audio_classifier_out)
+        else:
+            x = torch.cat([language_model_out, video_classifier_out, audio_classifier_out], dim=-1)
+
         x = self.linear1(x)
         x = self.relu1(x)
         x = self.linear2(x)
