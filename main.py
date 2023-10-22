@@ -76,7 +76,11 @@ def train_val(**train_val_arg_dict):
 
         for i, modality_inputs in enumerate(train_dataloader):
             _, transformed_video, processed_speech, spectrogram, target = modality_inputs
-            target = target.to(device)
+
+            transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
+            processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
+            spectrogram = spectrogram.to(device, non_blocking=True)
+            target = target.to(device, non_blocking=True)
 
             optimizer.zero_grad()
             predictions = unifiedmodel_obj(processed_speech, transformed_video, spectrogram)
@@ -116,7 +120,11 @@ def train_val(**train_val_arg_dict):
         for i, modality_inputs in enumerate(val_dataloader):
             with torch.no_grad():
                 _, transformed_video, processed_speech,spectrogram, target = modality_inputs
-                target = target.to(device)
+
+                transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
+                processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
+                spectrogram = spectrogram.to(device, non_blocking=True)
+                target = target.to(device, non_blocking=True)
 
                 predictions = unifiedmodel_obj(processed_speech, transformed_video, spectrogram)
                 batch_loss = loss_(predictions, target)
@@ -246,8 +254,8 @@ if __name__=='__main__':
     }
 
 
-    train_dataloader, val_dataloader = DataLoader(VideoClipDataset(**train_dataset_dict), shuffle=True, batch_size=batch_size),\
-    DataLoader(VideoClipDataset(**val_dataset_dict), shuffle=False, batch_size=batch_size)
+    train_dataloader, val_dataloader = DataLoader(VideoClipDataset(**train_dataset_dict), shuffle=True, batch_size=batch_size, pin_memory=True),\
+    DataLoader(VideoClipDataset(**val_dataset_dict), shuffle=False, batch_size=batch_size, pin_memory=True)
     if weighted_cross_entropy:
         #pdb.set_trace()
         total_videos = num_explicit_videos_train + num_non_explicit_videos_train

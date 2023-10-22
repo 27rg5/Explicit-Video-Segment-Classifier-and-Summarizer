@@ -52,14 +52,14 @@ class VideoClipDataset(Dataset):
         audio_enc_path = self.encoded_videos[index].replace('video_subclips','audio_encs').replace('_'+subclip_num+'.'+ext,'_audio_enc_'+subclip_num)
         audio_enc = pickle.load(open(audio_enc_path,'rb'))['processed_speech']
 
-        video_enc = [elem.to(self.device) for elem in video_enc]
-        audio_enc = {key:audio_enc[key].to(self.device) for key in audio_enc.keys()}
+        #video_enc = [elem.to(self.device) for elem in video_enc]
+        #audio_enc = {key:audio_enc[key].to(self.device) for key in audio_enc.keys()}
         
-        spectrogram_enc = torch.from_numpy(spectrogram_enc).to(self.device)
+        spectrogram_enc = torch.from_numpy(spectrogram_enc)#.to(self.device)
 
         class_str = self.encoded_videos[index].split('/')[-4]
         class_ = self.classes[class_str]
-        class_ = torch.tensor(class_).to(self.device)
+        #class_ = torch.tensor(class_).to(self.device)
         return self.encoded_videos[index], video_enc, audio_enc, spectrogram_enc, class_
 
     def __len__(self):
