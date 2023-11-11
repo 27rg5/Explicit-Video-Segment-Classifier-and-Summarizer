@@ -76,9 +76,10 @@ def train_val(**train_val_arg_dict):
 
         for i, modality_inputs in enumerate(train_dataloader):
             _, transformed_video, processed_speech, spectrogram, target = modality_inputs
-
-            transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
-            processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
+            if transformed_video!=0:
+                transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
+            if processed_speech!=0:
+                processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
             spectrogram = spectrogram.to(device, non_blocking=True)
             target = target.to(device, non_blocking=True)
 
@@ -121,8 +122,11 @@ def train_val(**train_val_arg_dict):
             with torch.no_grad():
                 _, transformed_video, processed_speech,spectrogram, target = modality_inputs
 
-                transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
-                processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
+                if transformed_video!=0:
+                    transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
+                if processed_speech!=0:
+                    processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
+
                 spectrogram = spectrogram.to(device, non_blocking=True)
                 target = target.to(device, non_blocking=True)
 
@@ -171,11 +175,13 @@ if __name__=='__main__':
     parser.add_argument('--experiment_name',type=str)
     parser.add_argument('--batch_size',type=int)
     parser.add_argument('--print_every',type=int)
+    parser.add_argument('--modalities',nargs='+',default='video audio text',help='Add modality names out of video, audio, text')
     parser.add_argument('--pairwise_attention_modalities', action='store_true')
     parser.add_argument('--vanilla_fusion', action='store_true')
+    parser.add_argument('--device',type=str,default='cuda:0', help='Use one of cuda:0, cuda:1, ....')
     args = parser.parse_args()
 
-    device = torch.device('cuda:0')
+    device = torch.device(args.device) if args.device else torch.device('cpu')
     n_epochs = args.n_epochs
     learning_rate = args.learning_rate
     root_dir = args.root_dir
@@ -184,6 +190,8 @@ if __name__=='__main__':
     video_model_name = args.video_model_name
     optimizer_name = args.optimizer_name
     print_every = args.print_every
+    modalities = args.modalities.split(' ') if args.modalities=='video audio text' else args.modalities
+    
     experiment_name = args.experiment_name
     batch_size = args.batch_size
     vanilla_fusion = args.vanilla_fusion
@@ -200,10 +208,15 @@ if __name__=='__main__':
     
 
     ##Model init
-    LanguageModel_obj = LanguageModel(model_name = language_model_name)
-    VideoModel_obj = VideoModel(model_name = video_model_name)
-    SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
-
+    LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj = None, None, None
+    if 'text' in modalities:
+        LanguageModel_obj = LanguageModel(model_name = language_model_name)
+    if 'video' in modalities:
+        VideoModel_obj = VideoModel(model_name = video_model_name)
+    if 'audio' in modalities:
+        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
+    # print('Checking objects of each modality')
+    # pdb.set_trace()
     
     if pairwise_attention_modalities:
         #Pairwise attention
@@ -212,7 +225,14 @@ if __name__=='__main__':
     elif vanilla_fusion:
         #Baseline
         in_dims = None
-        out_dims = 600
+        if len(modalities)==2:
+            out_dims = 400
+        elif len(modalities)==1:
+            out_dims = 200
+        else:
+            out_dims = 600
+        # print('Checking out_dims')
+        # pdb.set_trace()
     else:
         #Concate and then self-attention
         in_dims = 600
@@ -221,7 +241,6 @@ if __name__=='__main__':
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities
     UnifiedModel_obj = UnifiedModel(out_dims, intermediate_dims, in_dims, vanilla_fusion, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj).to(device)
-
 
     if optimizer_name in ['SGD','sgd']:
         optimizer = SGD(UnifiedModel_obj.parameters(), lr=learning_rate, momentum=0.9)
@@ -243,14 +262,16 @@ if __name__=='__main__':
         'root_dir':root_dir,
         'all_encoded_videos':train_encoded_videos,
         'encoded_video_obj':EncodeVideo_obj,
-        'device':device
+        'device':device,
+        'modalities':modalities
     }
 
     val_dataset_dict = {
         'root_dir':root_dir,
         'all_encoded_videos':val_encoded_videos,
         'encoded_video_obj':EncodeVideo_obj,
-        'device':device
+        'device':device,
+        'modalities':modalities
     }
 
 

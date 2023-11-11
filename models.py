@@ -119,7 +119,7 @@ class UnifiedModel(nn.Module):
         self.linear1 = nn.Linear(self.out_dims, self.intermediate_dims)
         self.linear2 = nn.Linear(self.intermediate_dims, self.num_classes)
 
-    def forward(self, language_model_in, video_classifier_in, audio_classifier_in):
+    def forward(self, language_model_in=None, video_classifier_in=None, audio_classifier_in=None):
         """
             Description: Forward function takes language model output , video_classifier output and audio_classifier output
 
@@ -127,19 +127,21 @@ class UnifiedModel(nn.Module):
             @param video_classifier_in: the processed video input from dataset class
             @param audio_classifier_in: the processed audio input from dataset class
         """
-        
-        language_model_out = self.LanguageModel_obj(language_model_in)
-        video_classifier_out = self.VideModel_obj(video_classifier_in)
-        audio_classifier_out = self.SpectrogramModel_obj(audio_classifier_in)
+        # print('In forward in unified model')
+        # pdb.set_trace()
+        language_model_out = self.LanguageModel_obj(language_model_in) if self.LanguageModel_obj else None
+        video_classifier_out = self.VideModel_obj(video_classifier_in) if self.VideModel_obj else None
+        audio_classifier_out = self.SpectrogramModel_obj(audio_classifier_in) if self.SpectrogramModel_obj else None
         if not self.vanilla_fusion:
             if not self.self_attention:
                 language_model_out = language_model_out.unsqueeze(1)
                 video_classifier_out = video_classifier_out.unsqueeze(1)
                 audio_classifier_out = audio_classifier_out.unsqueeze(1)
-        
+            
             x = self.latefusionwithattention(language_model_out, video_classifier_out, audio_classifier_out)
         else:
-            x = torch.cat([language_model_out, video_classifier_out, audio_classifier_out], dim=-1)
+            tensor_non_null_list = [elem for elem in [language_model_out, video_classifier_out, audio_classifier_out] if elem is not None] 
+            x = torch.cat(tensor_non_null_list, dim=-1)
 
         x = self.linear1(x)
         x = self.relu1(x)

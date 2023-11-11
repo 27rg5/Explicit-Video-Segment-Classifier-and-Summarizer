@@ -30,7 +30,7 @@ def inference_on_val(non_encoded_videos_path, val_encoded_videos_pkl, classes, c
         in_dims = None
         out_dims = 600
     else:
-        #Concate and then self-attention
+        #Concatenate and then self-attention
         in_dims = 600
         out_dims = 600      
 
@@ -87,7 +87,8 @@ def inference_on_val(non_encoded_videos_path, val_encoded_videos_pkl, classes, c
         predictions_df.to_csv(os.path.join(os.getcwd(),'runs',experiment_name,'predictions.csv'), index=False)
 
 
-    print('f1-score macro:{} f1-score micro:{} f1-score weighted:{} accuracy:{}'.format(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="macro").item(), multiclass_f1_score(preds_val, targets_val, num_classes=2, average="micro").item(), multiclass_f1_score(preds_val, targets_val, num_classes=2, average="weighted").item(), (preds_val==targets_val).sum()/len(targets_val)))
+    print('f1-score macro:{} f1-score micro:{} f1-score weighted:{} accuracy:{}'.format(round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="macro").item(), 2), round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="micro").item(), 2), round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="weighted").item(), 2), round((preds_val==targets_val).sum()/len(targets_val), 2)))
+    print('f1-score macro:{} f1-score micro:{} f1-score weighted:{} accuracy:{}'.format(round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="macro").item(), 3), round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="micro").item(), 3), round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="weighted").item(), 3), round((preds_val==targets_val).sum()/len(targets_val), 3)))
     
 
 if __name__=='__main__':

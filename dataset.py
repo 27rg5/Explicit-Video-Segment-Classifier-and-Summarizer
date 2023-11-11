@@ -37,25 +37,30 @@ class VideoClipDataset(Dataset):
             @param device: "cuda" or "cpu"
         """
     
-        self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device = dataset_dict.values()
+        self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device, self.modalities = dataset_dict.values()
         self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))} #Map class name to id
 
     def __getitem__(self, index):
-        video_path = self.encoded_videos[index]
-
+        video_enc, audio_enc,  spectrogram_enc = 0, 0, 0
         subclip_num, ext = self.encoded_videos[index].split('/')[-1].split('_')[-1].split('.')
-        spectrogram_enc_path = self.encoded_videos[index].replace('video_subclips','spectro_encs').replace('_'+subclip_num+'.'+ext,'_spectro_enc_'+subclip_num)
-        spectrogram_enc = pickle.load(open(spectrogram_enc_path,'rb'))['processed_spectro']
+        if 'video' in self.modalities:
+            video_path = self.encoded_videos[index]
+            video_enc = self.EncodeVideo_obj.get_video(video_path)
 
-        video_enc = self.EncodeVideo_obj.get_video(video_path)
-
-        audio_enc_path = self.encoded_videos[index].replace('video_subclips','audio_encs').replace('_'+subclip_num+'.'+ext,'_audio_enc_'+subclip_num)
-        audio_enc = pickle.load(open(audio_enc_path,'rb'))['processed_speech']
+        if 'text' in self.modalities:
+            audio_enc_path = self.encoded_videos[index].replace('video_subclips','audio_encs').replace('_'+subclip_num+'.'+ext,'_audio_enc_'+subclip_num)
+            audio_enc = pickle.load(open(audio_enc_path,'rb'))['processed_speech']
 
         #video_enc = [elem.to(self.device) for elem in video_enc]
         #audio_enc = {key:audio_enc[key].to(self.device) for key in audio_enc.keys()}
-        
-        spectrogram_enc = torch.from_numpy(spectrogram_enc)#.to(self.device)
+
+        if 'audio' in self.modalities:    
+            spectrogram_enc_path = self.encoded_videos[index].replace('video_subclips','spectro_encs').replace('_'+subclip_num+'.'+ext,'_spectro_enc_'+subclip_num)
+            spectrogram_enc = pickle.load(open(spectrogram_enc_path,'rb'))['processed_spectro']
+            spectrogram_enc = torch.from_numpy(spectrogram_enc)#.to(self.device)
+
+        # print('In getitem in dataset')
+        # pdb.set_trace()
 
         class_str = self.encoded_videos[index].split('/')[-4]
         class_ = self.classes[class_str]
