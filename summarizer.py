@@ -1,4 +1,5 @@
 import av
+import pdb
 import numpy as np
 from PIL import Image
 # from huggingface_hub import hf_hub_download
@@ -54,22 +55,22 @@ def summarize(base_path, model, processor, device):
         #target = base_path + str(i) + ".mp4"
 
 
-#        try:
-        container = av.open(target)
+        try:
+            container = av.open(target)
 
-        num_frames = model.config.num_image_with_embedding
-        indices = sample_frame_indices(
-            clip_len=num_frames, frame_sample_rate=4, seg_len=container.streams.video[0].frames
-        )
-        frames = read_video_pyav(container, indices)
+            num_frames = model.config.num_image_with_embedding
+            indices = sample_frame_indices(
+                clip_len=num_frames, frame_sample_rate=4, seg_len=container.streams.video[0].frames
+            )
+            frames = read_video_pyav(container, indices)
 
-        pixel_values = processor(images=list(frames), return_tensors="pt").pixel_values.to(device)
-        #import pdb;pdb.set_trace()
-        generated_ids = model.generate(pixel_values=pixel_values, max_length=50)
-#         print(i, processor.batch_decode(generated_ids, skip_special_tokens=True))
-        concat = concat + " " + processor.batch_decode(generated_ids, skip_special_tokens=True)[0] 
-        # except:
-        #     continue
+            pixel_values = processor(images=list(frames), return_tensors="pt").pixel_values.to(device)
+            #import pdb;pdb.set_trace()
+            generated_ids = model.generate(pixel_values=pixel_values, max_length=50)
+    #         print(i, processor.batch_decode(generated_ids, skip_special_tokens=True))
+            concat = concat + " " + processor.batch_decode(generated_ids, skip_special_tokens=True)[0] 
+        except:
+             continue
             
     return concat
 
