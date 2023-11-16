@@ -26,7 +26,7 @@ To install create a conda environment of python version 3.10.0 strictly
 Install whisper strictly use `pip install git+https://github.com/openai/whisper.git`
 Then run `pip install -r requirements.txt`
 
-Below is the diagram of our pipeline
+Below are the diagrams of our pipeline
 
 <p align="center">
      <img src="https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/master/pipeline1.jpg" alt="Pipeline">
