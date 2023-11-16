@@ -3,7 +3,7 @@ To install whisper strictly use 'pip install git+https://github.com/openai/whisp
 
 python version = 3.10.0
 
-In this project our objective is to take a video and extract the smaller segments of this video that contain explicit content and give a natural language summary of those video segments. We took a subset of two public datasets and just included the videos that came under 1 minute. For faster training we encoded the audio and language data in the form of audio and spectrogram encodings. The hierarchy of our data is
+In this project our objective is to take a video and extract the smaller segments of this video that contain explicit content and give a natural language summary of those video segments. We took a subset of two public datasets. For faster training we encoded the audio and language data in the form of audio and spectrogram encodings. The hierarchy of our data is
 
     - cls_data
       - processed_data
