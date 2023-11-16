@@ -28,9 +28,10 @@ Then run `pip install -r requirements.txt`
 
 Below is the diagram of our pipeline
 
-
- ![Alt Text](https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/main/Pipeline.jpeg)
-
+<p align="center">
+     <img src="https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/master/pipeline1.jpg" alt="Pipeline">
+     <img src="https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/master/pipeline2.jpg" alt="Attention Mechanism">
+</p>
 
 To train the model run
 ```
@@ -69,5 +70,6 @@ To run the demo for the entire pipeline
 
 Below is an example output from our pipeline
 
-
-![Alt text](https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/main/Demo.jpeg)
+<p align="center">
+    <img src="https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/master/results.jpeg" alt="Results">
+</p>
