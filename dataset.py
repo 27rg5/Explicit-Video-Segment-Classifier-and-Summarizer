@@ -38,6 +38,8 @@ class VideoClipDataset(Dataset):
         """
     
         self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device, self.modalities = dataset_dict.values()
+        # print(self.root_dir_path)
+        # print(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))
         self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))} #Map class name to id
 
     def __getitem__(self, index):
@@ -62,8 +64,10 @@ class VideoClipDataset(Dataset):
         # print('In getitem in dataset')
         # pdb.set_trace()
 
+        #print('classes: {} path: {}'.format(self.classes, self.encoded_videos[index].split('/')[-4]))
         class_str = self.encoded_videos[index].split('/')[-4]
         class_ = self.classes[class_str]
+        
         #class_ = torch.tensor(class_).to(self.device)
         return self.encoded_videos[index], video_enc, audio_enc, spectrogram_enc, class_
 

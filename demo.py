@@ -90,10 +90,8 @@ def divide_video(video_path, EncodeVideo_obj, UnifiedModel_obj, TokenizeText_obj
             end_time = start_time + 60
             #pdb.set_trace()
             segment_clip = video_clip.subclip(start_time, end_time)
-#            try:
+
             segment_clip.write_videofile(segment_clip_path)
-            # except:
-            #     pdb.set_trace()
             #segment_clip.close()
             processed_video = [elem.to(device) for elem in EncodeVideo_obj.get_video(segment_clip_path)]
             with torch.no_grad():
@@ -143,6 +141,7 @@ def divide_video(video_path, EncodeVideo_obj, UnifiedModel_obj, TokenizeText_obj
                     print('The summary is :{}'.format(summarized_string))
                 else:
                     csv_.writerow([output_file, start_time, end_time, classes_reverse_map[pred_softmax], ''])
+                    
 
             os.remove(segment_clip_path)
             os.system('rm -rf *.mp*')
@@ -196,19 +195,16 @@ def inference(stitched_videos_path, classes_reverse_map, checkpoint_path, save_r
     videos = glob.glob(os.path.join(stitched_videos_path, '*/*'))
     file_ = open(save_results_csv,'w')
     csv_ = csv.writer(file_)
-    csv_.writerow(['video_path', 'class', 'summary','start_time','end_time'])
+    csv_.writerow(['video_path', 'start_time','end_time', 'class', 'summary'])
 
     for i,video_path in tqdm(enumerate(videos)):
         print('For video :{}'.format(video_path))
         divide_video(video_path, EncodeVideo_obj, UnifiedModel_obj, TokenizeText_obj, GetSpectrogramFromAudio_obj, GetTextFromAudio_obj, classes_reverse_map, device, save_results_csv, csv_, file_)
-        if i==0:
-            shutil.copy(save_results_csv,'/home/shaunaks/predictions.csv')
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--stitched_videos_path', type=str, default=os.path.join(os.path.expanduser('~'), 'cls_data'))
     parser.add_argument('--experiment_name', type=str, default='third_run_sgd_lr_1e-3_macro_f1_with_seed_42')
-    parser.add_argument('--get_classified_list', action='store_true')
     parser.add_argument('--pairwise_attention_modalities', action='store_true')
     parser.add_argument('--modalities',nargs='+',default='video audio text',help='Add modality names out of video, audio, text')
     parser.add_argument('--vanilla_fusion', action='store_true')    
@@ -224,7 +220,7 @@ if __name__=='__main__':
     classes = {'explicit': 0, 'non_explicit': 1}
     classes_reverse_map = {v:k for k,v in classes.items()}
     checkpoint_path = os.path.join(os.getcwd(),'runs',experiment_name, 'best_checkpoint.pth')
-    save_results_csv = os.path.join(os.getcwd(),'runs',experiment_name,'predictions.csv')
+    save_results_csv = os.path.join(os.getcwd(),'runs',experiment_name,'demo_predictions.csv')
     inference(stitched_videos_path, classes_reverse_map, checkpoint_path, save_results_csv, pairwise_attention_modalities,vanilla_fusion, modalities)
 
 

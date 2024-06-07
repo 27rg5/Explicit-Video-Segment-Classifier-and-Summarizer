@@ -72,7 +72,7 @@ def divide_video_and_save_all_modalities(video_path, save_path_enc_dir, EncodeVi
 
     
     else:
-        for chunk in tqdm(range(num_chunks_lead)):
+        for chunk in range(num_chunks_lead):
             segment_clip_path = os.path.join(save_dir_video, output_file.split('/')[-1].replace('.mp4', '_{}.mp4'.format(chunk)))
             
             start_time = chunk*60
@@ -89,7 +89,7 @@ def divide_video_and_save_all_modalities(video_path, save_path_enc_dir, EncodeVi
     if num_chunks_trail!=0 and num_chunks_lead!=0:
         start_time = end_time
         end_time = start_time + num_chunks_trail
-        segment_clip_path = os.path.join(save_dir_video, output_file.split('/')[-1].replace('.mp4', '_{}.mp4'.format(chunk)))
+        segment_clip_path = os.path.join(save_dir_video, output_file.split('/')[-1].replace('.mp4', '_{}.mp4'.format(chunk+1)))
         
         segment_clip = video_clip.subclip(start_time, end_time)
         segment_clip.write_videofile(segment_clip_path)

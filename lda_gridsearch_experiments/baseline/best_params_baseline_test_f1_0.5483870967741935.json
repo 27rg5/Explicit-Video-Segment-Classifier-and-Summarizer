@@ -1,0 +1,1 @@
+{"tol": 1e-05, "solver": "adam", "n_iter_no_change": 3700, "max_iter": 4300, "learning_rate_init": 0.1, "learning_rate": "invscaling", "hidden_layer_sizes": [190, 270], "early_stopping": false, "alpha": 0.001, "test_f1": 0.5483870967741935, "test_accuracy": 0.6626506024096386}

@@ -258,6 +258,10 @@ if __name__=='__main__':
     
     train_encoded_videos, val_encoded_videos, num_explicit_videos_train, num_non_explicit_videos_train = get_train_val_split_videos(encoded_videos_path)
     pickle.dump(val_encoded_videos, open(os.path.join(experiment_dir,'val_encoded_video.pkl'), 'wb'))
+    print('Val videos stored')
+    pickle.dump(train_encoded_videos, open(os.path.join(experiment_dir,'train_encoded_video.pkl'), 'wb'))
+    print('Train videos stored')
+    
     train_dataset_dict = {
         'root_dir':root_dir,
         'all_encoded_videos':train_encoded_videos,
