@@ -37,14 +37,17 @@ class VideoClipDataset(Dataset):
             @param device: "cuda" or "cpu"
         """
     
-        self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device, self.modalities = dataset_dict.values()
-        # print(self.root_dir_path)
-        # print(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))
+        self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device, self.modalities, self.caption_df_dict = dataset_dict.values()
         self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))} #Map class name to id
 
     def __getitem__(self, index):
-        video_enc, audio_enc,  spectrogram_enc = 0, 0, 0
+        video_enc, audio_enc,  spectrogram_enc, caption = 0, 0, 0, None
         subclip_num, ext = self.encoded_videos[index].split('/')[-1].split('_')[-1].split('.')
+
+        if self.caption_df_dict is not None:
+            caption = self.caption_df_dict[self.encoded_videos[index]]
+            
+
         if 'video' in self.modalities:
             video_path = self.encoded_videos[index]
             video_enc = self.EncodeVideo_obj.get_video(video_path)
@@ -53,29 +56,19 @@ class VideoClipDataset(Dataset):
             audio_enc_path = self.encoded_videos[index].replace('video_subclips','audio_encs').replace('_'+subclip_num+'.'+ext,'_audio_enc_'+subclip_num)
             audio_enc = pickle.load(open(audio_enc_path,'rb'))['processed_speech']
 
-        #video_enc = [elem.to(self.device) for elem in video_enc]
-        #audio_enc = {key:audio_enc[key].to(self.device) for key in audio_enc.keys()}
-
         if 'audio' in self.modalities:    
             spectrogram_enc_path = self.encoded_videos[index].replace('video_subclips','spectro_encs').replace('_'+subclip_num+'.'+ext,'_spectro_enc_'+subclip_num)
             spectrogram_enc = pickle.load(open(spectrogram_enc_path,'rb'))['processed_spectro']
-            spectrogram_enc = torch.from_numpy(spectrogram_enc)#.to(self.device)
+            spectrogram_enc = torch.from_numpy(spectrogram_enc)
 
-        # print('In getitem in dataset')
-        # pdb.set_trace()
-
-        #print('classes: {} path: {}'.format(self.classes, self.encoded_videos[index].split('/')[-4]))
         class_str = self.encoded_videos[index].split('/')[-4]
         class_ = self.classes[class_str]
         
-        #class_ = torch.tensor(class_).to(self.device)
-        return self.encoded_videos[index], video_enc, audio_enc, spectrogram_enc, class_
+        return self.encoded_videos[index], video_enc, audio_enc, spectrogram_enc, caption, class_
 
     def __len__(self):
         return len(self.encoded_videos)
 
-# def collate_fn(data):
-#     file_name, video_enc, audio_enc, spectrogram_enc, class_audio_enc = data
     
 if __name__=='__main__':
     root_dir_path = os.path.join(os.path.expanduser('~'), 'cls_data')

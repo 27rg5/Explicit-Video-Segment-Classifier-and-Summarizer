@@ -7,6 +7,7 @@ from transformers import AutoModelForSequenceClassification
 class MLP(nn.Module):
     def __init__(self, captionnet, fc_layer_unified_model_dims, weighted_loss_strategy=False):
         super(MLP, self).__init__()
+
         self.captionnet = sk2torch.wrap(captionnet).to(torch.float)
         self.weighted_loss_strategy = weighted_loss_strategy
         in_features = self.captionnet.module.layers[-1].in_features
@@ -112,7 +113,7 @@ class LateFusionWithAttention(nn.Module):
         return concatenated_attention
 
 class UnifiedModel(nn.Module):
-    def __init__(self, out_dims, intermediate_dims, in_dims, vanilla_fusion=False, self_attention=False, LanguageModel_obj=None, VideModel_obj=None, SpectrogramModel_obj=None):
+    def __init__(self, out_dims, intermediate_dims, in_dims, vanilla_fusion=False, self_attention=False, LanguageModel_obj=None, VideModel_obj=None, SpectrogramModel_obj=None, mlp_object=None, weighted_loss_mlp_fusion=False):
         """
             Description: A unified model that takes language model output , video_classifier output and audio_classifier output. Here audio_classifier output is spectrogram
 
@@ -134,12 +135,21 @@ class UnifiedModel(nn.Module):
         self.SpectrogramModel_obj = SpectrogramModel_obj
         self.relu1 = nn.ReLU()
         self.vanilla_fusion = vanilla_fusion 
+        self.mlp_fusion = mlp_fusion
+        self.weighted_loss_mlp_fusion = weighted_loss_mlp_fusion
+        self.mlp_object = mlp_object
+        self.mlp = None
         if not self.vanilla_fusion:
             self.latefusionwithattention = LateFusionWithAttention(self.in_dims, self.self_attention)
         self.linear1 = nn.Linear(self.out_dims, self.intermediate_dims)
         self.linear2 = nn.Linear(self.intermediate_dims, self.num_classes)
+        if self.mlp_object:
+            self.mlp = MLP(mlp_object, linear1.out_features, self.weighted_loss_mlp_fusion)
+            if not self.weighted_loss_mlp_fusion:
+                self.linear2 = nn.Linear(self.intermediate_dims+self.mlp.captionnet[-2].out_features, self.num_classes)
+        
 
-    def forward(self, language_model_in=None, video_classifier_in=None, audio_classifier_in=None):
+    def forward(self, language_model_in=None, video_classifier_in=None, audio_classifier_in=None, doc_topic_distr_in=None):
         """
             Description: Forward function takes language model output , video_classifier output and audio_classifier output
 
@@ -152,6 +162,7 @@ class UnifiedModel(nn.Module):
         language_model_out = self.LanguageModel_obj(language_model_in) if self.LanguageModel_obj else None
         video_classifier_out = self.VideModel_obj(video_classifier_in) if self.VideModel_obj else None
         audio_classifier_out = self.SpectrogramModel_obj(audio_classifier_in) if self.SpectrogramModel_obj else None
+        caption_classifier_out = self.mlp(doc_topic_distr_in) if self.mlp else None
         if not self.vanilla_fusion:
             if not self.self_attention:
                 language_model_out = language_model_out.unsqueeze(1)
@@ -165,9 +176,13 @@ class UnifiedModel(nn.Module):
 
         x = self.linear1(x)
         x = self.relu1(x)
+        if self.mlp_fusion:
+            if not self.weighted_loss_mlp_fusion:
+                x = torch.cat([x, caption_classifier_out], dim=-1) 
         x = self.linear2(x)
-        
-        return x
+
+        if self.weighted_loss_mlp_fusion:    
+            return x, caption_classifier_out
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import os
 import pdb
 import torch
+import joblib
 import shutil
 import pickle
 import glob
@@ -17,6 +18,8 @@ from torch.utils.data import DataLoader
 from text_utils import GetTextFromAudio, TokenizeText
 from video_utils import EncodeVideo
 from models import VideoModel
+from summarizer import summarize
+from transformers import AutoProcessor, AutoModelForCausalLM
 #from audio_utils import GetSpectrogramFromAudio
 #from torch.utils.data import SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
@@ -24,8 +27,15 @@ from torcheval.metrics.functional import multiclass_f1_score
 import warnings
 warnings.filterwarnings("ignore")
 
+def generate_caption_dict(train_val_video_paths, summarizer_model, video_processor):
+    caption_dicts = [dict(), dict()]
+    for i, video_paths in enumerate(train_val_video_paths):
+        for video_path in video_paths:
+            caption = summarize(video_path, summarizer_model, video_processor)
+            caption_dicts[i][video_path] = caption
+    return caption_dicts
 
-def get_train_val_split_videos(root_dir, split_pct=0.2):
+def get_train_val_split_videos(root_dir, mlp_fusion=False, split_pct=0.2):
     
     #Split explicit_train_val videos
     explicit_videos = glob.glob(os.path.join(root_dir,'explicit/*/video_subclips/*'))
@@ -34,6 +44,7 @@ def get_train_val_split_videos(root_dir, split_pct=0.2):
     np.random.shuffle(explicit_indices)
     explicit_val_split_index = int(len(explicit_videos)*split_pct)
     explicit_videos_val,  explicit_videos_train = [explicit_videos[index] for index in explicit_indices[:explicit_val_split_index]], [explicit_videos[index] for index in explicit_indices[explicit_val_split_index:]]
+
 
     #Split non_explicit_train_val videos
     non_explicit_videos = glob.glob(os.path.join(root_dir,'non_explicit/*/video_subclips/*'))
@@ -44,12 +55,21 @@ def get_train_val_split_videos(root_dir, split_pct=0.2):
 
     #Get the total train_val videos
     train_videos, val_videos = explicit_videos_train+non_explicit_videos_train, explicit_videos_val+non_explicit_videos_val
+    train_captions, val_captions = None, None
+    if mlp_fusion:
+        video_processor = AutoProcessor.from_pretrained("microsoft/git-large-vatex")
+        summarizer_model = AutoModelForCausalLM.from_pretrained("microsoft/git-large-vatex")
+        train_captions_dict, val_captions_dict = generate_caption_dict([train_videos, val_videos], summarizer_model, video_processor)
+
+    assert len(train_videos)==len(train_captions_dict), 'Train videos and captions mismatch'
+    assert len(val_videos)==len(val_captions_dict), 'Val videos and captions mismatch'
+    
     print('Explicit train ',len(explicit_videos_train))
     print('Non_explicit train ',len(non_explicit_videos_train))
     print('Explicit val ',len(explicit_videos_val))
     print('Non_explicit val ',len(non_explicit_videos_val))
     
-    return train_videos, val_videos, len(explicit_videos_train), len(non_explicit_videos_train)
+    return train_videos, val_videos, len(explicit_videos_train), len(non_explicit_videos_train), train_captions_dict, val_captions_dict
 
 
 def train_val(**train_val_arg_dict):
@@ -75,7 +95,7 @@ def train_val(**train_val_arg_dict):
         targets_val = list()
 
         for i, modality_inputs in enumerate(train_dataloader):
-            _, transformed_video, processed_speech, spectrogram, target = modality_inputs
+            _, transformed_video, processed_speech, spectrogram, caption, target = modality_inputs
             if transformed_video!=0:
                 transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
             if processed_speech!=0:
@@ -84,7 +104,7 @@ def train_val(**train_val_arg_dict):
             target = target.to(device, non_blocking=True)
 
             optimizer.zero_grad()
-            predictions = unifiedmodel_obj(processed_speech, transformed_video, spectrogram)
+            predictions = unifiedmodel_obj(processed_speech, transformed_video, spectrogram, caption)
             batch_loss = loss_(predictions, target)
             batch_loss.backward()
             optimizer.step()
@@ -120,7 +140,7 @@ def train_val(**train_val_arg_dict):
         correct_val_preds = 0
         for i, modality_inputs in enumerate(val_dataloader):
             with torch.no_grad():
-                _, transformed_video, processed_speech,spectrogram, target = modality_inputs
+                _, transformed_video, processed_speech,spectrogram, caption, target = modality_inputs
 
                 if transformed_video!=0:
                     transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
@@ -130,7 +150,7 @@ def train_val(**train_val_arg_dict):
                 spectrogram = spectrogram.to(device, non_blocking=True)
                 target = target.to(device, non_blocking=True)
 
-                predictions = unifiedmodel_obj(processed_speech, transformed_video, spectrogram)
+                predictions = unifiedmodel_obj(processed_speech, transformed_video, spectrogram, caption)
                 batch_loss = loss_(predictions, target)
                 pred_softmax = softmax(predictions)
                 pred_softmax = torch.argmax(pred_softmax, dim=1)
@@ -178,12 +198,20 @@ if __name__=='__main__':
     parser.add_argument('--modalities',nargs='+',default='video audio text',help='Add modality names out of video, audio, text')
     parser.add_argument('--pairwise_attention_modalities', action='store_true')
     parser.add_argument('--vanilla_fusion', action='store_true')
+    parser.add_argument('--mlp_fusion', action='store_true')
+    parser.add_argument('--weighted_loss_mlp_fusion', action='store_true')
+    parser.add_argument('--mlp_object_path', type=str, default='', help='path to the sklearn/pytorch mlp object')
+    parser.add_argument('--topic_model_path', type=str, default='', help='path to the sklearn/bertopic topic model object')
     parser.add_argument('--device',type=str,default='cuda:0', help='Use one of cuda:0, cuda:1, ....')
     args = parser.parse_args()
 
     device = torch.device(args.device) if args.device else torch.device('cpu')
     n_epochs = args.n_epochs
+    mlp_fusion = args.mlp_fusion
+    mlp_object_path = args.mlp_object_path
+    weighted_loss_mlp_fusion = args.weighted_loss_mlp_fusion
     learning_rate = args.learning_rate
+    topic_model_path = args.topic_model_path
     root_dir = args.root_dir
     language_model_name = args.language_model_name
     spectrogram_model_name = args.spectrogram_model_name
@@ -205,6 +233,15 @@ if __name__=='__main__':
     makedir(experiment_dir)
 
     weighted_cross_entropy = args.weighted_cross_entropy
+
+    mlp_object = None
+    if mlp_fusion:
+        if os.path.splitext(mlp_object_path)[1].replace('.','')=='joblib':
+            mlp_object = joblib.load(mlp_object_path)
+        else:
+            mlp_object = torch.load(mlp_object_path)
+        
+        
     
 
     ##Model init
@@ -231,16 +268,14 @@ if __name__=='__main__':
             out_dims = 200
         else:
             out_dims = 600
-        # print('Checking out_dims')
-        # pdb.set_trace()
     else:
-        #Concate and then self-attention
+        #Concatenate and then self-attention
         in_dims = 600
         out_dims = 600    
 
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities
-    UnifiedModel_obj = UnifiedModel(out_dims, intermediate_dims, in_dims, vanilla_fusion, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj).to(device)
+    UnifiedModel_obj = UnifiedModel(out_dims, intermediate_dims, in_dims, vanilla_fusion, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj, mlp_object, weighted_loss_mlp_fusion).to(device)
 
     if optimizer_name in ['SGD','sgd']:
         optimizer = SGD(UnifiedModel_obj.parameters(), lr=learning_rate, momentum=0.9)
@@ -256,18 +291,24 @@ if __name__=='__main__':
         TokenizeText_obj = TokenizeText()        
         encode_videos(all_videos, encoded_videos_path, EncodeVideo_obj, GetTextFromAudio_obj, TokenizeText_obj)    
     
-    train_encoded_videos, val_encoded_videos, num_explicit_videos_train, num_non_explicit_videos_train = get_train_val_split_videos(encoded_videos_path)
-    pickle.dump(val_encoded_videos, open(os.path.join(experiment_dir,'val_encoded_video.pkl'), 'wb'))
+    train_encoded_videos, val_encoded_videos, num_explicit_videos_train, num_non_explicit_videos_train, train_captions_dict, val_captions_dict = get_train_val_split_videos(encoded_videos_path, mlp_fusion=mlp_fusion)
+    pickle.dump(val_encoded_videos, open(os.path.join(experiment_dir,'val_encoded_video.pkl'), 'wb'))        
     print('Val videos stored')
     pickle.dump(train_encoded_videos, open(os.path.join(experiment_dir,'train_encoded_video.pkl'), 'wb'))
     print('Train videos stored')
+
+    if train_captions_dict or val_captions_dict:
+        pickle.dump(train_captions_dict, open(os.path.join(experiment_dir,'train_captions.pkl'), 'wb'))
+        pickle.dump(val_captions_dict, open(os.path.join(experiment_dir,'val_captions.pkl'), 'wb'))
+
     
     train_dataset_dict = {
         'root_dir':root_dir,
         'all_encoded_videos':train_encoded_videos,
         'encoded_video_obj':EncodeVideo_obj,
         'device':device,
-        'modalities':modalities
+        'modalities':modalities,
+        'train_captions_dict':train_captions_dict
     }
 
     val_dataset_dict = {
@@ -275,7 +316,8 @@ if __name__=='__main__':
         'all_encoded_videos':val_encoded_videos,
         'encoded_video_obj':EncodeVideo_obj,
         'device':device,
-        'modalities':modalities
+        'modalities':modalities,
+        'val_captions_dict':val_captions_dict
     }
 
 
