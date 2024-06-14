@@ -1,7 +1,27 @@
 import torch, pdb
+import sk2torch
 import torch.nn as nn
 #import torchvision.transforms as T
 from transformers import AutoModelForSequenceClassification
+
+class MLP(nn.Module):
+    def __init__(self, captionnet, fc_layer_unified_model_dims, weighted_loss_strategy=False):
+        super(MLP, self).__init__()
+        self.captionnet = sk2torch.wrap(captionnet).to(torch.float)
+        self.weighted_loss_strategy = weighted_loss_strategy
+        in_features = self.captionnet.module.layers[-1].in_features
+        self.captionnet = self.captionnet.module.layers
+        for p in self.captionnet.parameters():
+            p.requires_grad = False
+
+        if not self.weighted_loss_strategy:
+            self.captionnet = self.captionnet[:-1]
+            self.captionnet.append(nn.Linear(in_features, fc_layer_unified_model_dims))
+            self.captionnet.append(nn.ReLU())
+    
+    def forward(self, x):
+        x = self.captionnet(x)
+        return x
 
 class VideoModel(nn.Module):
     def __init__(self, model_name='slowfast_r50', pretrained=True, demo=False) -> None:
