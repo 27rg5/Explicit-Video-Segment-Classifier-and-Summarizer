@@ -10,7 +10,10 @@ Original file is located at
 """
 
 import pandas as pd
+from bertopic import BERTopic
+from gensim.models import TfidfModel
 import joblib
+import shutil
 from joblib import dump, load
 from sklearn.model_selection import ParameterGrid
 import json
@@ -21,6 +24,8 @@ import pyLDAvis.gensim
 import numpy as np
 import pandas as pd
 import re
+import time
+import logging
 from multiprocessing import Pool
 from joblib import Parallel, delayed
 from sklearn.neural_network import MLPClassifier
@@ -32,6 +37,18 @@ import warnings
 # Suppress all warnings
 warnings.filterwarnings('ignore')
 
+def setup_logger(logger_name, model_topic_param_dir,  level=logging.INFO):
+    log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s : %(message)s')
+
+    log_file = os.path.join(model_topic_param_dir, f'gridsearch_logs.log')
+    handler = logging.FileHandler(log_file)
+    handler.setFormatter(log_format)
+
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(level)
+    logger.addHandler(handler)
+
+    return logger
 
 """## Read file containing all videos captioned"""
 
@@ -56,9 +73,13 @@ stop_words = stopwords.words('english')
 def sent_to_words(sentences):
     for sentence in sentences:
         yield(gensim.utils.simple_preprocess(str(sentence), deacc=True))
-def remove_stopwords(texts):
-    return [[word for word in simple_preprocess(str(doc))
+def remove_stopwords(texts, keep_sentence=False):
+    if not keep_sentence:
+        return [[word for word in simple_preprocess(str(doc)) 
              if word not in stop_words] for doc in texts]
+    else:
+        return [' '.join([word for word in simple_preprocess(str(doc)) 
+             if word not in stop_words]) for doc in texts]
 
 data = df.Caption.values.tolist()
 data_words = list(sent_to_words(data))
@@ -99,48 +120,53 @@ lda_model_copy_asymmetric = gensim.models.LdaMulticore(corpus=corpus,
                                        eta='auto',
                                       random_state = np.random.RandomState(42))
 
+data = df.Caption.values.tolist()
+data_words = list(sent_to_words(data))
+data_words = remove_stopwords(data_words, True)
 
 
-
-
-"""## Find the best topic size"""
-
+#def find_best_topic(corpus, id2word, data_words):
 max_topic = None
 max_coherence = -1
 
-def get_coherence(topic):
+#def get_coherence(topic):
+
+# pool = Parallel(n_jobs=-1)
+# topic_range = range(1, 150)
+# all_results = pool(delayed(get_coherence)(topic) for topic in topic_range)
+
+for topic in range(1, 150):
+    import pdb;pdb.set_trace()
     lda_model = gensim.models.LdaMulticore(corpus=corpus,
-                                       id2word=id2word,
-                                       num_topics=topic,
-                                          random_state = np.random.RandomState(42), workers=1)
+                                        id2word=id2word,
+                                        num_topics=topic,
+                                            random_state = np.random.RandomState(42))#, workers=1)
 
-    coherence_model_lda = CoherenceModel(model=lda_model, texts=data_words, dictionary=id2word, coherence='c_v', processes=1)
+    coherence_model_lda = CoherenceModel(model=lda_model, texts=data_words, dictionary=id2word, coherence='c_v')#, processes=1)
     coherence_lda = coherence_model_lda.get_coherence()
-    print(f'Coherence Score: {coherence_lda} and num_topics: {topic}')
-    return topic, coherence_lda
+    print(f'Coherence Score: {coherence_lda} and num_topics: {topic}')    
+#    return topic, coherence_lda 
 
-pool = Parallel(n_jobs=-1)
-topic_range = range(1, 150)
-#all_results = pool.map(get_coherence, topic_range)
-all_results = pool(delayed(get_coherence)(topic) for topic in topic_range)
-# pool.close()
-# pool.join()
-
-for topic, coherence_score in all_results:
-    if coherence_score > max_coherence:
+    if coherence_lda > max_coherence:
         max_coherence = coherence_score
         max_topic = topic
+# for topic, coherence_score in all_results:
+#     if coherence_score > max_coherence:
+#         max_coherence = coherence_score
+#         max_topic = topic
+print(f'Max topic:{max_topic} with coherence score: {max_coherence}')
+#    return max_topic, max_coherence
 
-from pprint import pprint
+#best_num_topics,_ = find_best_topic(corpus, id2word, data_words)
 lda_model = gensim.models.LdaMulticore(corpus=corpus,
                                        id2word=id2word,
-                                       num_topics=max_topic,
+                                       num_topics=best_num_topics,
                                       random_state = np.random.RandomState(42))
 
 #Visualize using mmds as multidimentionality reduction technique
 
 
-from pprint import pprint
+
 lda_model_asymmetric = gensim.models.LdaMulticore(corpus=corpus,
                                        id2word=id2word,
                                        num_topics=max_topic,
@@ -148,6 +174,27 @@ lda_model_asymmetric = gensim.models.LdaMulticore(corpus=corpus,
                                         eta='auto',
                                       random_state = np.random.RandomState(42))
 
+lda_model_more_topics = gensim.models.LdaMulticore(corpus=corpus,
+                                       id2word=id2word,
+                                       num_topics=150,
+                                      random_state = np.random.RandomState(42))
+
+
+# tfidf = TfidfModel(corpus=corpus, id2word=id2word)  # fit model
+# tf_idf_corpus = tfidf[corpus]
+
+# best_num_topics, _ = find_best_topic(tf_idf_corpus, id2word, data_words)
+# lda_model_tfidf = gensim.models.LdaMulticore(corpus=tf_idf_corpus,
+#                                        id2word=id2word,
+#                                        num_topics=best_num_topics,
+#                                       random_state = np.random.RandomState(42))
+
+# topic_model = BERTopic()
+# topics, probs = topic_model.fit_transform(data_words)
+# topic_distr, _ = topic_model.approximate_distribution(data_words)
+# topic_distr_list = list()
+# for topic_probs in topic_distr:
+#     topic_distr_list.append([(i, topic_prob) for i,topic_prob in enumerate(topic_probs)])
 
 
 # lda_model.get_document_topics(id2word.doc2bow(data_words[0]), minimum_probability=0.0)
@@ -157,6 +204,7 @@ new_df = pd.read_csv("/home/shaunaks/Explicit-Video-Segment-Classifier-and-Summa
 """## Get the embeddings of LDA from the captions and train"""
 
 def prepare_data_and_train(model, model_name, topic, params, prev_model_name):
+    print(f'Preparing data and training for model {model_name} with topics {topic} and params {params}...')
     dataset = pd.DataFrame(columns=['topics', 'ans'])
     for i in range(331):
         l1 = []
@@ -178,48 +226,45 @@ def prepare_data_and_train(model, model_name, topic, params, prev_model_name):
         str_ = f'For model {model_name} with number of topics as {model.num_topics} and num params per layer {params}'
     else:
         str_ = f'\n For model {model_name} with number of topics as {model.num_topics} and num params per layer {params}'
-    print(str_)
-    print('Coherence Score: ', coherence_lda)
+    # print(str_)
+    # print('Coherence Score: ', coherence_lda)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
     clf = MLPClassifier(hidden_layer_sizes = (params[0], params[1]), max_iter=2000, random_state=42)
     clf.fit(X_train, y_train)
 
     y_pred = clf.predict(X_train)
 
-    print("Train accuracy: ", accuracy_score(y_train, y_pred))
-    print("Train F1: ", f1_score(y_train, y_pred))
+    # print("Train accuracy: ", accuracy_score(y_train, y_pred))
+    # print("Train F1: ", f1_score(y_train, y_pred))
 
     y_pred = clf.predict(X_test)
     test_accuracy = accuracy_score(y_test, y_pred)
     test_f1 = f1_score(y_test, y_pred)
-    print("Test accuracy: ", test_accuracy)
-    print("Test F1: ", test_f1)
-
+    # print("Test accuracy: ", test_accuracy)
+    # print("Test F1: ", test_f1)
+    print('Preparing and training done')
     return test_f1, test_accuracy
 
-lda_model_more_topics = gensim.models.LdaMulticore(corpus=corpus,
-                                       id2word=id2word,
-                                       num_topics=150,
-                                      random_state = np.random.RandomState(42))
 
-prev_model_name = ''
-data = list()
-num_params = [(20, 10), (64, 32), (100, 100), (250, 250), (400, 300)]
-#num_params = [(64, 32), (100, 100), (250, 250)]
-for topic, model_name, model in zip([10, max_topic, 150, 10], ['baseline', 'optimal topic model','arbitrarily high number of topics model','asymmetric_alpha_n_eta'], [lda_model_copy, lda_model, lda_model_more_topics, lda_model_copy_asymmetric]):
-    for params in num_params:
-        test_f1_acc = prepare_data_and_train(model, model_name, topic, params, prev_model_name)
-        if model_name=='asymmetric_alpha_n_eta':
-            data.append({'topic':f'Topic : {topic}_asymm', 'params':f'{params}', 'test_f1':test_f1_acc[0]})
-        else:
-            data.append({'topic':f'Topic : {topic}', 'params':f'{params}', 'test_f1':test_f1_acc[0]})
+#prev_model_name = ''
+#data = list()
+# num_params = [(20, 10), (64, 32), (100, 100), (250, 250), (400, 300)]
+# #num_params = [(64, 32), (100, 100), (250, 250)]
+# for topic, model_name, model in zip([10, max_topic, 150, 10], ['baseline', 'optimal topic model','arbitrarily high number of topics model','asymmetric_alpha_n_eta'], [lda_model_copy, lda_model, lda_model_more_topics, lda_model_copy_asymmetric]):
+#     for params in num_params:
+#         test_f1_acc = prepare_data_and_train(model, model_name, topic, params, prev_model_name)
+#         if model_name=='asymmetric_alpha_n_eta':
+#             data.append({'topic':f'Topic : {topic}_asymm', 'params':f'{params}', 'test_f1':test_f1_acc[0]})
+#         else:
+#             data.append({'topic':f'Topic : {topic}', 'params':f'{params}', 'test_f1':test_f1_acc[0]})
 
 
 def makedir(dir_):
     os.makedirs(dir_, exist_ok=True)
 
 #Grid search to find the best parameters
-def grid_search(model, model_name, topic, corpus, id2word):
+def grid_search(model, model_name, topic, corpus, id2word, model_topic_param_dir, logger_):
+    st_time = time.time()
     dataset = pd.DataFrame(columns=['topics', 'ans'])
     for i in range(331):
         l1 = []
@@ -260,11 +305,14 @@ def grid_search(model, model_name, topic, corpus, id2word):
     X_combined = X_train + X_test
     y_combined = y_train + y_test
     test_fold = np.array([-1 for i in range(len(X_train))] + [0 for i in range(len(X_test))])
-    print(f'Staring random search for model {model_name} with topics {topic}...')
-    grid = RandomizedSearchCV(clf, parameter_space, n_iter = 500000, cv=PredefinedSplit(test_fold), n_jobs=-1, scoring='f1', random_state = 42)
+    logger_.info(f'Staring random search for model {model_name} with topics {topic}...')
+    max_num_iterations = 1
+    grid = RandomizedSearchCV(clf, parameter_space, n_iter = max_num_iterations, cv=PredefinedSplit(test_fold), n_jobs=-1, scoring='f1', random_state = 42)
     grid.fit(X_combined, y_combined)
 
     best_model = grid.best_estimator_
+    best_model_params = best_model.coefs_
+    #import pdb;pdb.set_trace()
     y_pred_test = best_model.predict(X_test)
     best_params = grid.best_params_
     test_accuracy = accuracy_score(y_test, y_pred_test)
@@ -272,22 +320,33 @@ def grid_search(model, model_name, topic, corpus, id2word):
     best_params.update({'test_f1':test_f1, 'test_accuracy':test_accuracy})
 
     #import pdb; pdb.set_trace()
-    print(f'For num topics {topic} and model {model_name}')
-    print("Best parameters found:",best_params )
-    print("Test Accuracy:", test_accuracy)
-    print("Test F1 Score:", test_f1)
+    logger_.info(f'For num topics {topic} and model {model_name}')
+    logger_.info("Best parameters found: %s",best_params )
+    logger_.info("Test Accuracy: %f", test_accuracy)
+    logger_.info("Test F1 Score: %f", test_f1)
 
-    exp_dir = './lda_gridsearch_experiments'
-    makedir(exp_dir)
-    dir_ = f'{model_name}'
-    write_dir = os.path.join(exp_dir,dir_)
-    makedir(write_dir)
-    model_path = os.path.join(os.getcwd(),write_dir, f'best_model_{model_name}_test_f1_{test_f1}.pkl')
-    param_details_path = os.path.join(os.getcwd(), write_dir, f'best_params_{model_name}_test_f1_{test_f1}.json')
+    model_path = os.path.join(model_topic_param_dir, f'best_model_{model_name}_test_f1_{test_f1}.pkl')
+    param_details_path = os.path.join(model_topic_param_dir, f'best_params_{model_name}_test_f1_{test_f1}.json')
+    model_params_path = os.path.join(model_topic_param_dir, f'best_model_params_{model_name}_test_f1_{test_f1}')
     dump(best_model, model_path)
+    dump(best_model_params, model_params_path)
     json.dump(best_params, open(param_details_path, 'w'))
+    time_taken_log = f'Time taken for model {model_name} with topics {topic} is {time.time()-st_time} seconds for {max_num_iterations} iterations \n\n'
+    print(time_taken_log)
+    logger_.info(time_taken_log)
+    
 
 
+curr_dir = os.getcwd()
+gridsearch_root_dir = os.path.join(curr_dir, 'lda_gridsearch_experiments')
+if os.path.exists(gridsearch_root_dir):
+    shutil.rmtree(gridsearch_root_dir)
 
-for topic, model_name, model in zip([10, max_topic, 150, 10], ['baseline', 'optimal topic model','arbitrarily high number of topics model','asymmetric_alpha_n_eta'], [lda_model_copy, lda_model, lda_model_more_topics, lda_model_copy_asymmetric]):
-    grid_search(model, model_name, topic, corpus, id2word)
+makedir(gridsearch_root_dir)
+for topic, model_name, model in zip([81, 7], ['tf_idf_model', 'bertopic'], [lda_model_tfidf, topic_distr_list]):
+    model_dir = os.path.join(gridsearch_root_dir,f'{model_name}')
+    makedir(model_dir)
+    model_topic_param_dir = os.path.join(model_dir,f'{model_name}_{topic}')
+    makedir(model_topic_param_dir)
+    logger_ = setup_logger(f'{model_name}_{topic}', model_topic_param_dir)
+    grid_search(model, model_name, topic, corpus, id2word, model_topic_param_dir, logger_)
