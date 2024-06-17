@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 from text_utils import GetTextFromAudio, TokenizeText
 from video_utils import EncodeVideo
 from models import VideoModel
+from LDA import get_corpus_from_captions
 from summarizer import summarize
 from transformers import AutoProcessor, AutoModelForCausalLM
 #from audio_utils import GetSpectrogramFromAudio
@@ -27,13 +28,12 @@ from torcheval.metrics.functional import multiclass_f1_score
 import warnings
 warnings.filterwarnings("ignore")
 
-def generate_caption_dict(train_val_video_paths, summarizer_model, video_processor):
-    caption_dicts = [dict(), dict()]
-    for i, video_paths in enumerate(train_val_video_paths):
-        for video_path in video_paths:
-            caption = summarize(video_path, summarizer_model, video_processor)
-            caption_dicts[i][video_path] = caption
-    return caption_dicts
+def generate_caption_dict(all_video_paths, summarizer_model, video_processor):
+    caption_dict = dict()
+    for video_path in video_paths:
+        caption = summarize(video_path, summarizer_model, video_processor)
+        caption_dict[video_path] = caption
+    return caption_dict
 
 def get_train_val_split_videos(root_dir, mlp_fusion=False, split_pct=0.2):
     
@@ -55,11 +55,18 @@ def get_train_val_split_videos(root_dir, mlp_fusion=False, split_pct=0.2):
 
     #Get the total train_val videos
     train_videos, val_videos = explicit_videos_train+non_explicit_videos_train, explicit_videos_val+non_explicit_videos_val
-    train_captions, val_captions = None, None
+
+    #Sanity check if train and val videos are not same
+    assert len(set(train_videos).intersection(set(val_videos)))==0, 'Train and Val videos have overlap'
+
+    all_captions_dict = None
+
     if mlp_fusion:
         video_processor = AutoProcessor.from_pretrained("microsoft/git-large-vatex")
         summarizer_model = AutoModelForCausalLM.from_pretrained("microsoft/git-large-vatex")
-        train_captions_dict, val_captions_dict = generate_caption_dict([train_videos, val_videos], summarizer_model, video_processor)
+        all_videos = train_videos + val_videos
+        all_captions_dict = generate_caption_dict(all_videos, summarizer_model, video_processor)
+        del video_processor, summarizer_model
 
     assert len(train_videos)==len(train_captions_dict), 'Train videos and captions mismatch'
     assert len(val_videos)==len(val_captions_dict), 'Val videos and captions mismatch'
@@ -69,7 +76,7 @@ def get_train_val_split_videos(root_dir, mlp_fusion=False, split_pct=0.2):
     print('Explicit val ',len(explicit_videos_val))
     print('Non_explicit val ',len(non_explicit_videos_val))
     
-    return train_videos, val_videos, len(explicit_videos_train), len(non_explicit_videos_train), train_captions_dict, val_captions_dict
+    return train_videos, val_videos, len(explicit_videos_train), len(non_explicit_videos_train), all_captions_dict
 
 
 def train_val(**train_val_arg_dict):
@@ -202,6 +209,7 @@ if __name__=='__main__':
     parser.add_argument('--weighted_loss_mlp_fusion', action='store_true')
     parser.add_argument('--mlp_object_path', type=str, default='', help='path to the sklearn/pytorch mlp object')
     parser.add_argument('--topic_model_path', type=str, default='', help='path to the sklearn/bertopic topic model object')
+    parser.add_argument('--lda_type', type=str, default='tfidf', help='type of lda, put one out of tfidf or bertopic')
     parser.add_argument('--device',type=str,default='cuda:0', help='Use one of cuda:0, cuda:1, ....')
     args = parser.parse_args()
 
@@ -213,6 +221,7 @@ if __name__=='__main__':
     learning_rate = args.learning_rate
     topic_model_path = args.topic_model_path
     root_dir = args.root_dir
+    lda_type = args.lda_type
     language_model_name = args.language_model_name
     spectrogram_model_name = args.spectrogram_model_name
     video_model_name = args.video_model_name
@@ -252,8 +261,6 @@ if __name__=='__main__':
         VideoModel_obj = VideoModel(model_name = video_model_name)
     if 'audio' in modalities:
         SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
-    # print('Checking objects of each modality')
-    # pdb.set_trace()
     
     if pairwise_attention_modalities:
         #Pairwise attention
@@ -291,16 +298,19 @@ if __name__=='__main__':
         TokenizeText_obj = TokenizeText()        
         encode_videos(all_videos, encoded_videos_path, EncodeVideo_obj, GetTextFromAudio_obj, TokenizeText_obj)    
     
-    train_encoded_videos, val_encoded_videos, num_explicit_videos_train, num_non_explicit_videos_train, train_captions_dict, val_captions_dict = get_train_val_split_videos(encoded_videos_path, mlp_fusion=mlp_fusion)
-    pickle.dump(val_encoded_videos, open(os.path.join(experiment_dir,'val_encoded_video.pkl'), 'wb'))        
+    train_encoded_videos, val_encoded_videos, num_explicit_videos_train, num_non_explicit_videos_train, all_captions_dict = get_train_val_split_videos(encoded_videos_path, mlp_fusion=mlp_fusion)
+    all_captions_dict = get_corpus_from_captions(all_captions_dict, lda_type) if all_captions_dict else None
+
+    pickle.dump(val_encoded_videos, open(os.path.join(experiment_dir,'val_encoded_video.pkl'), 'wb'))
     print('Val videos stored')
     pickle.dump(train_encoded_videos, open(os.path.join(experiment_dir,'train_encoded_video.pkl'), 'wb'))
     print('Train videos stored')
 
-    if train_captions_dict or val_captions_dict:
-        pickle.dump(train_captions_dict, open(os.path.join(experiment_dir,'train_captions.pkl'), 'wb'))
-        pickle.dump(val_captions_dict, open(os.path.join(experiment_dir,'val_captions.pkl'), 'wb'))
-
+    if mlp_fusion:
+        if not os.path.exists(os.path.join(experiment_dir,'all_captions.pkl')):
+            pickle.dump(all_captions_dict, open(os.path.join(experiment_dir,'all_captions.pkl'), 'wb'))
+        else:
+            all_captions_dict = pickle.load(open(os.path.join(experiment_dir,'all_captions.pkl'),'rb'))
     
     train_dataset_dict = {
         'root_dir':root_dir,
@@ -308,7 +318,7 @@ if __name__=='__main__':
         'encoded_video_obj':EncodeVideo_obj,
         'device':device,
         'modalities':modalities,
-        'train_captions_dict':train_captions_dict
+        'all_captions_dict':all_captions_dict
     }
 
     val_dataset_dict = {
@@ -317,7 +327,7 @@ if __name__=='__main__':
         'encoded_video_obj':EncodeVideo_obj,
         'device':device,
         'modalities':modalities,
-        'val_captions_dict':val_captions_dict
+        'all_captions_dict':all_captions_dict
     }
 
 

@@ -183,6 +183,7 @@ class UnifiedModel(nn.Module):
 
         if self.weighted_loss_mlp_fusion:    
             return x, caption_classifier_out
+        return x
 
 
 if __name__ == '__main__':
