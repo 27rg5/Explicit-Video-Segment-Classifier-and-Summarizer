@@ -32,7 +32,17 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV, PredefinedSplit,RandomizedSearchCV
 from sklearn.metrics import accuracy_score, f1_score
 from gensim.models.coherencemodel import CoherenceModel
+import gensim
+from gensim.utils import simple_preprocess
+import nltk
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+stop_words = stopwords.words('english')
+np.random.seed(42)
+import plotly.graph_objects as go
+import gensim.corpora as corpora
 import warnings
+from ..LDA import find_best_topic
 
 # Suppress all warnings
 warnings.filterwarnings('ignore')
@@ -50,218 +60,10 @@ def setup_logger(logger_name, model_topic_param_dir,  level=logging.INFO):
 
     return logger
 
-"""## Read file containing all videos captioned"""
-
-df = pd.read_csv("/home/shaunaks/Explicit-Video-Segment-Classifier-and-Summarizer/runs/attention_fusion_default_networks_pairwise_21epochs/lda_preds.csv")
-
-"""## Preprocess Data"""
-
-df['Caption'] = \
-df['Caption'].map(lambda x: re.sub('[,\.!?]', '', x))
-df['Caption'] = \
-df['Caption'].map(lambda x: x.lower())
-df['Caption'].head()
-
-import gensim
-from gensim.utils import simple_preprocess
-import nltk
-nltk.download('stopwords')
-from nltk.corpus import stopwords
-stop_words = stopwords.words('english')
-#print(stop_words)
-
-def sent_to_words(sentences):
-    for sentence in sentences:
-        yield(gensim.utils.simple_preprocess(str(sentence), deacc=True))
-def remove_stopwords(texts, keep_sentence=False):
-    if not keep_sentence:
-        return [[word for word in simple_preprocess(str(doc)) 
-             if word not in stop_words] for doc in texts]
-    else:
-        return [' '.join([word for word in simple_preprocess(str(doc)) 
-             if word not in stop_words]) for doc in texts]
-
-data = df.Caption.values.tolist()
-data_words = list(sent_to_words(data))
-data_words = remove_stopwords(data_words)
-
-import plotly.graph_objects as go
-import gensim.corpora as corpora
-
-
-id2word = corpora.Dictionary(data_words)
-texts = data_words
-import collections
-from collections import defaultdict
-word_to_count = collections.Counter()
-
-for i, text in enumerate(texts):
-    temp_dict = collections.Counter(text)
-    word_to_count.update(temp_dict)
-word_to_count = dict(sorted(word_to_count.items(), key=lambda item: item[1], reverse=True))
-corpus = [id2word.doc2bow(text) for text in texts]
-
-words = list(word_to_count.keys())
-count_ = list(word_to_count.values())
-
-
-"""## Visualize LDA on corpus using only 10 topics"""
-
-num_topics = 10
-lda_model_copy = gensim.models.LdaMulticore(corpus=corpus,
-                                       id2word=id2word,
-                                       num_topics=num_topics,
-                                      random_state = np.random.RandomState(42))
-
-lda_model_copy_asymmetric = gensim.models.LdaMulticore(corpus=corpus,
-                                       id2word=id2word,
-                                       num_topics=num_topics,
-                                       alpha='asymmetric',
-                                       eta='auto',
-                                      random_state = np.random.RandomState(42))
-
-data = df.Caption.values.tolist()
-data_words = list(sent_to_words(data))
-data_words = remove_stopwords(data_words, True)
-
-
-#def find_best_topic(corpus, id2word, data_words):
-max_topic = None
-max_coherence = -1
-
-#def get_coherence(topic):
-
-# pool = Parallel(n_jobs=-1)
-# topic_range = range(1, 150)
-# all_results = pool(delayed(get_coherence)(topic) for topic in topic_range)
-
-for topic in range(1, 150):
-    import pdb;pdb.set_trace()
-    lda_model = gensim.models.LdaMulticore(corpus=corpus,
-                                        id2word=id2word,
-                                        num_topics=topic,
-                                            random_state = np.random.RandomState(42))#, workers=1)
-
-    coherence_model_lda = CoherenceModel(model=lda_model, texts=data_words, dictionary=id2word, coherence='c_v')#, processes=1)
-    coherence_lda = coherence_model_lda.get_coherence()
-    print(f'Coherence Score: {coherence_lda} and num_topics: {topic}')    
-#    return topic, coherence_lda 
-
-    if coherence_lda > max_coherence:
-        max_coherence = coherence_score
-        max_topic = topic
-# for topic, coherence_score in all_results:
-#     if coherence_score > max_coherence:
-#         max_coherence = coherence_score
-#         max_topic = topic
-print(f'Max topic:{max_topic} with coherence score: {max_coherence}')
-#    return max_topic, max_coherence
-
-#best_num_topics,_ = find_best_topic(corpus, id2word, data_words)
-lda_model = gensim.models.LdaMulticore(corpus=corpus,
-                                       id2word=id2word,
-                                       num_topics=best_num_topics,
-                                      random_state = np.random.RandomState(42))
-
-#Visualize using mmds as multidimentionality reduction technique
-
-
-
-lda_model_asymmetric = gensim.models.LdaMulticore(corpus=corpus,
-                                       id2word=id2word,
-                                       num_topics=max_topic,
-                                       alpha = 'asymmetric',
-                                        eta='auto',
-                                      random_state = np.random.RandomState(42))
-
-lda_model_more_topics = gensim.models.LdaMulticore(corpus=corpus,
-                                       id2word=id2word,
-                                       num_topics=150,
-                                      random_state = np.random.RandomState(42))
-
-
-# tfidf = TfidfModel(corpus=corpus, id2word=id2word)  # fit model
-# tf_idf_corpus = tfidf[corpus]
-
-# best_num_topics, _ = find_best_topic(tf_idf_corpus, id2word, data_words)
-# lda_model_tfidf = gensim.models.LdaMulticore(corpus=tf_idf_corpus,
-#                                        id2word=id2word,
-#                                        num_topics=best_num_topics,
-#                                       random_state = np.random.RandomState(42))
-
-# topic_model = BERTopic()
-# topics, probs = topic_model.fit_transform(data_words)
-# topic_distr, _ = topic_model.approximate_distribution(data_words)
-# topic_distr_list = list()
-# for topic_probs in topic_distr:
-#     topic_distr_list.append([(i, topic_prob) for i,topic_prob in enumerate(topic_probs)])
-
-
-# lda_model.get_document_topics(id2word.doc2bow(data_words[0]), minimum_probability=0.0)
-
-new_df = pd.read_csv("/home/shaunaks/Explicit-Video-Segment-Classifier-and-Summarizer/runs/attention_fusion_default_networks_pairwise_21epochs/predictions_test.csv")
-
-"""## Get the embeddings of LDA from the captions and train"""
-
-def prepare_data_and_train(model, model_name, topic, params, prev_model_name):
-    print(f'Preparing data and training for model {model_name} with topics {topic} and params {params}...')
-    dataset = pd.DataFrame(columns=['topics', 'ans'])
-    for i in range(331):
-        l1 = []
-        temp = model.get_document_topics(corpus[i], minimum_probability=0.0)
-        for j in range(len(temp)):
-            l1.append(temp[j][1])
-        if new_df.iloc[i, 2] == 'explicit':
-            a = 1
-        else:
-            a = 0
-        dataset.loc[i] = [l1, a]
-
-    X = dataset.topics.to_list()
-    y = dataset.ans.to_list()
-
-    coherence_model_lda = CoherenceModel(model=model, texts=data_words, dictionary=id2word, coherence='c_v')
-    coherence_lda = coherence_model_lda.get_coherence()
-    if prev_model_name==model_name:
-        str_ = f'For model {model_name} with number of topics as {model.num_topics} and num params per layer {params}'
-    else:
-        str_ = f'\n For model {model_name} with number of topics as {model.num_topics} and num params per layer {params}'
-    # print(str_)
-    # print('Coherence Score: ', coherence_lda)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
-    clf = MLPClassifier(hidden_layer_sizes = (params[0], params[1]), max_iter=2000, random_state=42)
-    clf.fit(X_train, y_train)
-
-    y_pred = clf.predict(X_train)
-
-    # print("Train accuracy: ", accuracy_score(y_train, y_pred))
-    # print("Train F1: ", f1_score(y_train, y_pred))
-
-    y_pred = clf.predict(X_test)
-    test_accuracy = accuracy_score(y_test, y_pred)
-    test_f1 = f1_score(y_test, y_pred)
-    # print("Test accuracy: ", test_accuracy)
-    # print("Test F1: ", test_f1)
-    print('Preparing and training done')
-    return test_f1, test_accuracy
-
-
-#prev_model_name = ''
-#data = list()
-# num_params = [(20, 10), (64, 32), (100, 100), (250, 250), (400, 300)]
-# #num_params = [(64, 32), (100, 100), (250, 250)]
-# for topic, model_name, model in zip([10, max_topic, 150, 10], ['baseline', 'optimal topic model','arbitrarily high number of topics model','asymmetric_alpha_n_eta'], [lda_model_copy, lda_model, lda_model_more_topics, lda_model_copy_asymmetric]):
-#     for params in num_params:
-#         test_f1_acc = prepare_data_and_train(model, model_name, topic, params, prev_model_name)
-#         if model_name=='asymmetric_alpha_n_eta':
-#             data.append({'topic':f'Topic : {topic}_asymm', 'params':f'{params}', 'test_f1':test_f1_acc[0]})
-#         else:
-#             data.append({'topic':f'Topic : {topic}', 'params':f'{params}', 'test_f1':test_f1_acc[0]})
-
-
 def makedir(dir_):
     os.makedirs(dir_, exist_ok=True)
 
+def prepare_data()
 #Grid search to find the best parameters
 def grid_search(model, model_name, topic, corpus, id2word, model_topic_param_dir, logger_):
     st_time = time.time()
@@ -337,16 +139,18 @@ def grid_search(model, model_name, topic, corpus, id2word, model_topic_param_dir
     
 
 
-curr_dir = os.getcwd()
-gridsearch_root_dir = os.path.join(curr_dir, 'lda_gridsearch_experiments')
-if os.path.exists(gridsearch_root_dir):
-    shutil.rmtree(gridsearch_root_dir)
+if __name__=='__main__':
+    curr_dir = os.getcwd()
+    gridsearch_root_dir = os.path.join(curr_dir, 'lda_gridsearch_experiments')
+    if os.path.exists(gridsearch_root_dir):
+        shutil.rmtree(gridsearch_root_dir)
 
-makedir(gridsearch_root_dir)
-for topic, model_name, model in zip([81, 7], ['tf_idf_model', 'bertopic'], [lda_model_tfidf, topic_distr_list]):
-    model_dir = os.path.join(gridsearch_root_dir,f'{model_name}')
-    makedir(model_dir)
-    model_topic_param_dir = os.path.join(model_dir,f'{model_name}_{topic}')
-    makedir(model_topic_param_dir)
-    logger_ = setup_logger(f'{model_name}_{topic}', model_topic_param_dir)
-    grid_search(model, model_name, topic, corpus, id2word, model_topic_param_dir, logger_)
+
+    makedir(gridsearch_root_dir)
+    for topic, model_name, model in zip([81, 7], ['tf_idf_model', 'bertopic'], [lda_model_tfidf, topic_distr_list]):
+        model_dir = os.path.join(gridsearch_root_dir,f'{model_name}')
+        makedir(model_dir)
+        model_topic_param_dir = os.path.join(model_dir,f'{model_name}_{topic}')
+        makedir(model_topic_param_dir)
+        logger_ = setup_logger(f'{model_name}_{topic}', model_topic_param_dir)
+        grid_search(model, model_name, topic, corpus, id2word, model_topic_param_dir, logger_)

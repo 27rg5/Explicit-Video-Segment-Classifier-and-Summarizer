@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 from text_utils import GetTextFromAudio, TokenizeText
 from video_utils import EncodeVideo
 from models import VideoModel
+from data_utils import caption_files_exist
 from LDA import get_corpus_from_captions
 from summarizer import summarize
 from transformers import AutoProcessor, AutoModelForCausalLM
@@ -28,17 +29,17 @@ from torcheval.metrics.functional import multiclass_f1_score
 import warnings
 warnings.filterwarnings("ignore")
 
-def generate_caption_dict(all_video_paths, summarizer_model, video_processor):
+def generate_caption_dict(all_video_paths, summarizer_model, video_processor, num_train_videos):
     caption_dict = dict()
-    for video_path in video_paths:
+    for i, video_path in enumerate(all_video_paths):
         caption = summarize(video_path, summarizer_model, video_processor)
-        caption_dict[video_path] = caption
+        caption_dict[video_path] = ('train',caption) if i<num_train_videos else ('val',caption)
     return caption_dict
 
-def get_train_val_split_videos(root_dir, mlp_fusion=False, split_pct=0.2):
+def get_train_val_split_videos(root_dir, encoded_videos_path, mlp_fusion=False, split_pct=0.2):
     
     #Split explicit_train_val videos
-    explicit_videos = glob.glob(os.path.join(root_dir,'explicit/*/video_subclips/*'))
+    explicit_videos = glob.glob(os.path.join(encoded_videos_path,'explicit/*/video_subclips/*'))
     explicit_indices = list(range(len(explicit_videos)))
     np.random.seed(42)
     np.random.shuffle(explicit_indices)
@@ -47,7 +48,7 @@ def get_train_val_split_videos(root_dir, mlp_fusion=False, split_pct=0.2):
 
 
     #Split non_explicit_train_val videos
-    non_explicit_videos = glob.glob(os.path.join(root_dir,'non_explicit/*/video_subclips/*'))
+    non_explicit_videos = glob.glob(os.path.join(encoded_videos_path,'non_explicit/*/video_subclips/*'))
     non_explicit_indices = list(range(len(non_explicit_videos)))
     np.random.shuffle(non_explicit_indices)
     non_explicit_val_split_index = int(len(non_explicit_videos)*split_pct)
@@ -62,14 +63,23 @@ def get_train_val_split_videos(root_dir, mlp_fusion=False, split_pct=0.2):
     all_captions_dict = None
 
     if mlp_fusion:
-        video_processor = AutoProcessor.from_pretrained("microsoft/git-large-vatex")
-        summarizer_model = AutoModelForCausalLM.from_pretrained("microsoft/git-large-vatex")
-        all_videos = train_videos + val_videos
-        all_captions_dict = generate_caption_dict(all_videos, summarizer_model, video_processor)
-        del video_processor, summarizer_model
+        train_captions_csv, val_captions_csv, files_exist = caption_files_exist(root_dir)
+        if files_exist:
+            train_captions = pd.read_csv(train_captions_csv)
+            train_captions['dataset_type'] = 'train'
+            val_captions = pd.read_csv(val_captions_csv)
+            val_captions['dataset_type'] = 'val'
+            all_captions = train_captions.append(val_captions, ignore_index=True)
+            all_captions_dict = dict(zip(all_captions['Video path'], zip(all_captions['dataset_type'], all_captions['Caption'])))
+        
+        else:
+            video_processor = AutoProcessor.from_pretrained("microsoft/git-large-vatex")
+            summarizer_model = AutoModelForCausalLM.from_pretrained("microsoft/git-large-vatex")
+            all_videos = train_videos + val_videos
+            all_captions_dict = generate_caption_dict(all_videos, summarizer_model, video_processor, len(train_videos))
+            del video_processor, summarizer_model
 
-    assert len(train_videos)==len(train_captions_dict), 'Train videos and captions mismatch'
-    assert len(val_videos)==len(val_captions_dict), 'Val videos and captions mismatch'
+    assert len(train_videos)+len(val_videos)==len(all_captions_dict), 'Number of videos captioned and number of videos available don\'t match'
     
     print('Explicit train ',len(explicit_videos_train))
     print('Non_explicit train ',len(non_explicit_videos_train))
@@ -291,6 +301,7 @@ if __name__=='__main__':
 
     all_videos = glob.glob(os.path.join(root_dir,'non_encoded_videos_sep/*/*'))
     encoded_videos_path = os.path.join(root_dir,'encoded_videos')
+    
     EncodeVideo_obj = EncodeVideo() 
 
     if not os.path.exists(encoded_videos_path):
@@ -298,7 +309,8 @@ if __name__=='__main__':
         TokenizeText_obj = TokenizeText()        
         encode_videos(all_videos, encoded_videos_path, EncodeVideo_obj, GetTextFromAudio_obj, TokenizeText_obj)    
     
-    train_encoded_videos, val_encoded_videos, num_explicit_videos_train, num_non_explicit_videos_train, all_captions_dict = get_train_val_split_videos(encoded_videos_path, mlp_fusion=mlp_fusion)
+    
+    train_encoded_videos, val_encoded_videos, num_explicit_videos_train, num_non_explicit_videos_train, all_captions_dict = get_train_val_split_videos(root_dir, encoded_videos_path, mlp_fusion=mlp_fusion)
     all_captions_dict = get_corpus_from_captions(all_captions_dict, lda_type) if all_captions_dict else None
 
     pickle.dump(val_encoded_videos, open(os.path.join(experiment_dir,'val_encoded_video.pkl'), 'wb'))

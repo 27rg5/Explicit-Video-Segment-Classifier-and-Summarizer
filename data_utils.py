@@ -6,6 +6,7 @@ import pdb
 import math
 import glob
 import pickle
+import pandas as pd
 from tqdm import tqdm
 from video_utils import EncodeVideo
 from moviepy.editor import VideoFileClip
@@ -23,6 +24,15 @@ def makedir(dir_):
 def convert_avi_to_mp4(avi_file_path, output_name):
      os.popen("ffmpeg -i '{input}' -ac 2 -b:v 2000k -c:a aac -c:v libx264 -b:a 160k -vprofile high -bf 0 -strict experimental -f mp4 '{output}.mp4'".format(input = avi_file_path, output = output_name))
      return True
+
+def caption_files_exist(root_dir, val_captions_csv):
+    train_captions_csv = os.path.join(root_dir, 'train_captions.csv')
+    val_captions_csv = os.path.join(root_dir, val_captions_csv)
+    if not os.path.exists(train_captions_csv) or os.path.exists(val_captions_csv):
+        print('Train or Val captions csv not found')
+        return None, None, False
+
+    return train_captions_csv, val_captions_csv, True        
 
 def divide_video_and_save_all_modalities(video_path, save_path_enc_dir, EncodeVideo_obj, TokenizeText_obj, GetSpectrogramFromAudio_obj, GetTextFromAudio_obj):
     
