@@ -5,7 +5,7 @@ import pyLDAvis
 import pyLDAvis.gensim
 import numpy as np
 import pandas as pd
-import re
+import re, pdb
 from bertopic import BERTopic
 from umap import UMAP
 from multiprocessing import Pool
@@ -27,6 +27,7 @@ stop_words = stopwords.words('english')
 np.random.seed(42)
 
 def find_best_topic(corpus, id2word, data_words):
+    print('Finding best topic...')
     max_topic = None
     max_coherence = -1
     
@@ -49,11 +50,14 @@ def find_best_topic(corpus, id2word, data_words):
             max_coherence = coherence_score
             max_topic = topic
     print(f'Max topic:{max_topic} with coherence score: {max_coherence}')
+    print('Done')
     return max_topic, max_coherence
 
 
-def get_corpus_from_captions(captions_dict, root_dir, load_from_file=False, lda_type='tfidf'):
-    captions_df = pd.DataFrame(captions_dict.items(), columns=['Video path', 'dataset_type', 'Caption'])
+def get_corpus_from_captions(captions_dict, lda_type='tfidf'):
+    print('Preprocessing....')
+    captions_df = pd.DataFrame([{'Video path':k, 'dataset_type':v[0], 'Caption':v[1]} for k,v in captions_dict.items()])
+    captions_df['Caption'] = captions_df['Caption'].astype(str) #There are some nan values (around 4 in the entire df)
     captions_df['Caption'] = \
     captions_df['Caption'].map(lambda x: re.sub('[,\.!?]', '', x))
     captions_df['Caption'] = \
@@ -77,11 +81,13 @@ def get_corpus_from_captions(captions_dict, root_dir, load_from_file=False, lda_
     video_paths = list(video_caption_dict.keys())
     data_words = remove_stopwords(data_words, True) if lda_type == 'bertopic' else remove_stopwords(data_words)
 
+    print('Getting topic features...')
     if lda_type != 'bertopic':
         id2word = corpora.Dictionary(data_words)
         corpus = [id2word.doc2bow(text) for text in data_words]    
         
-        if lda_type == 'tfidf':
+        if 'tfidf' in lda_type:
+            print('LDA with tfidf...')
             tfidf = TfidfModel(corpus=corpus, id2word=id2word)
             corpus = tfidf[corpus]
     
@@ -91,11 +97,9 @@ def get_corpus_from_captions(captions_dict, root_dir, load_from_file=False, lda_
                                             num_topics=best_num_topics,
                                             random_state = 42)
 
-        for i in range(len(data_words)):
-            topic_distr = lda_model.get_document_topics()
         for i, video_path in enumerate(video_paths):
             topic_feats = lda_model.get_document_topics(corpus[i], minimum_probability=0.0)
-            video_caption_dict[video_path] = np.array([value for _, value in topic_feats])
+            video_caption_dict[video_path] = (video_caption_dict[video_path][0], [value for _, value in topic_feats])
 
     elif lda_type == 'bertopic':
         umap_model = UMAP(n_neighbors=15, n_components=5, 
@@ -104,10 +108,11 @@ def get_corpus_from_captions(captions_dict, root_dir, load_from_file=False, lda_
         topic_model.fit_transform(data_words)
         topic_distr, _ = topic_model.approximate_distribution(data_words)
         for video_path, topic_feats in zip(video_paths, topic_distr):
-            video_caption_dict[video_path] = topic_feats
+            video_caption_dict[video_path] = (video_caption_dict[video_path][0], topic_feats.tolist())
     else:
         raise ValueError(f'Invalid LDA type {lda_type} input one out of tfidf or bertopic')
 
+    print('Done')
     return video_caption_dict
 
 

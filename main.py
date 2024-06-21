@@ -69,7 +69,7 @@ def get_train_val_split_videos(root_dir, encoded_videos_path, mlp_fusion=False, 
             train_captions['dataset_type'] = 'train'
             val_captions = pd.read_csv(val_captions_csv)
             val_captions['dataset_type'] = 'val'
-            all_captions = train_captions.append(val_captions, ignore_index=True)
+            all_captions = pd.concat([train_captions, val_captions], ignore_index=True)
             all_captions_dict = dict(zip(all_captions['Video path'], zip(all_captions['dataset_type'], all_captions['Caption'])))
         
         else:
@@ -203,7 +203,7 @@ if __name__=='__main__':
     parser.add_argument('--n_epochs',type=int)
     parser.add_argument('--learning_rate',type=float)
     parser.add_argument('--optimizer_name',type=str)
-    parser.add_argument('--root_dir', type=str,help='path where videos will be stored in the form of root_folder/<class>/video_file')
+    parser.add_argument('--root_dir', type=str,help='path where videos will be stored in the form of root_folder/encoded_videos/<class>/video_file')
     parser.add_argument('--language_model_name', type=str,help='path to the fine-tuned model OR huggingface pretrained model name')
     parser.add_argument('--spectrogram_model_name', type=str,help='path to the fine-tuned model OR huggingface pretrained model name')
     parser.add_argument('--video_model_name', type=str,help='pretrained model name') #Optional
@@ -299,12 +299,12 @@ if __name__=='__main__':
     elif optimizer_name in ['Adam','adam']:
         optimizer = Adam(UnifiedModel_obj.parameters(), lr=learning_rate)
 
-    all_videos = glob.glob(os.path.join(root_dir,'non_encoded_videos_sep/*/*'))
     encoded_videos_path = os.path.join(root_dir,'encoded_videos')
     
-    EncodeVideo_obj = EncodeVideo() 
+    EncodeVideo_obj = EncodeVideo()
 
     if not os.path.exists(encoded_videos_path):
+        all_videos = glob.glob(os.path.join(root_dir,'non_encoded_videos_sep/*/*'))
         GetTextFromAudio_obj = GetTextFromAudio()
         TokenizeText_obj = TokenizeText()        
         encode_videos(all_videos, encoded_videos_path, EncodeVideo_obj, GetTextFromAudio_obj, TokenizeText_obj)    
