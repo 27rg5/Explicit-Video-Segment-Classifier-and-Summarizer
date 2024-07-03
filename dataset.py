@@ -39,13 +39,16 @@ class VideoClipDataset(Dataset):
     
         self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device, self.modalities, self.caption_df_dict = dataset_dict.values()
         self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))} #Map class name to id
-
+        
     def __getitem__(self, index):
-        video_enc, audio_enc,  spectrogram_enc, caption = 0, 0, 0, None
+        video_enc, audio_enc,  spectrogram_enc, caption = 0, 0, 0, ''
         subclip_num, ext = self.encoded_videos[index].split('/')[-1].split('_')[-1].split('.')
 
-        if self.caption_df_dict is not None:
-            caption = self.caption_df_dict[self.encoded_videos[index]][1]
+        if self.caption_df_dict:
+            try:
+                caption = torch.Tensor(self.caption_df_dict[self.encoded_videos[index]][1])
+            except:
+                pdb.set_trace()
             
 
         if 'video' in self.modalities:

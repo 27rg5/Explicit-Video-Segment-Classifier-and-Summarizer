@@ -64,7 +64,9 @@ def makedir(dir_):
 
 def get_captions_and_preds_from_experiement_dir(experiment_dir):
     train_caption_df = pd.read_csv(os.path.join(experiment_dir,'lda_preds_train.csv'))
+    train_caption_df['Video path'] = train_caption_df['Video path'].apply(lambda x: x.strip("[]").strip("'"))
     val_caption_df = pd.read_csv(os.path.join(experiment_dir,'lda_preds.csv'))
+    val_caption_df['Video path'] = val_caption_df['Video path'].apply(lambda x: x.strip("[]").strip("'"))
     train_caption_df['dataset_type'] = 'train'
     val_caption_df['dataset_type'] = 'val'
     train_preds_df = pd.read_csv(os.path.join(experiment_dir,'predictions_train.csv'))
@@ -76,24 +78,23 @@ def get_captions_and_preds_from_experiement_dir(experiment_dir):
     return train_caption_df, val_caption_df, train_preds_dict, val_preds_dict
 
     
-def prepare_data(train_caption_df, val_caption_df, train_preds_df, val_preds_df, lda_type='bertopic'):
+def prepare_data(train_caption_df, val_caption_df, lda_type='bertopic'):
     print('Preparing data for grid search...')
-    val_caption_df['Video path'] = val_caption_df['Video path'].apply(lambda x: x.strip("[]").strip("'"))
     captions_df = pd.concat([train_caption_df, val_caption_df], ignore_index=True)
     all_captions_dict = dict(zip(captions_df['Video path'].values, zip(captions_df['dataset_type'].values, captions_df['Caption'].values)))
     all_captions_dict = get_corpus_from_captions(all_captions_dict, lda_type)
     print('Done')
-    return pd.DataFrame([{'Video path':k, 'dataset_type':v[0], 'Feature':v[1]} for k,v in all_captions_dict.items()])
+    return all_captions_dict, pd.DataFrame([{'Video path':k, 'dataset_type':v[0], 'Feature':v[1]} for k,v in all_captions_dict.items()])
 
 #Grid search to find the best parameters
 def grid_search(video_topic_feats_df, train_preds_dict, val_preds_dict, model_name, model_dir, logger_):
-    st_time = time.time()
+    #st_time = time.time()
     X_train = pd.DataFrame(columns=['topics'])
     y_train = pd.DataFrame(columns=['ans'])
     X_test = pd.DataFrame(columns=['topics'])
     y_test = pd.DataFrame(columns=['ans'])
 
-    pdb.set_trace()
+    #pdb.set_trace()
     for i, row in video_topic_feats_df.iterrows():
         if row['dataset_type'] == 'train':
             X_train.at[i, 'topics'] = [row['Feature']]
@@ -109,37 +110,32 @@ def grid_search(video_topic_feats_df, train_preds_dict, val_preds_dict, model_na
             'solver':['sgd','adam','lbfgs'],
             'alpha':[0.0001, 0.001, 0.01, 0.1],
             'learning_rate':['constant', 'invscaling', 'adaptive'],
-            'learning_rate_init': [0.001, 0.01, 0.1],
-            'early_stopping':[True, False],
-            'n_iter_no_change':[i for i in range(100, 4000, 100)],
-            'tol': [1e-2, 1e-3, 1e-4, 1e-5]
+            'learning_rate_init': [1e-4, 1e-3, 1e-2, 1e-1],
+            'activation':['identity', 'logistic', 'tanh', 'relu'],
+            'nesterovs_momentum':[True, False]
+            # 'early_stopping':[True, False],
+            # 'n_iter_no_change':[i for i in range(100, 4000, 100)],
+#            'tol': [1e-2, 1e-3, 1e-4, 1e-5]
         }    
-    # parameter_space = {
-    #         'hidden_layer_sizes': [(10, 20),(20,100)],
-    #         'max_iter':[i for i in range(10, 20)],
-    #         'solver':['sgd','adam','lbfgs'],
-    #         'alpha':[0.0001],
-    #         'learning_rate':['constant'],
-    #         'learning_rate_init': [0.001, 0.01],
-    #         'early_stopping':[True, False],
-    #     }    
-    num_topics = len(video_topic_feats_df.Feature.iloc[0])
+    
     clf = MLPClassifier(random_state=42)
     X_train = [x[0] for x in X_train.topics.to_list()]
     X_test = [x[0] for x in X_test.topics.to_list()]
     y_train = y_train.ans.to_list()
     y_test = y_test.ans.to_list()
+    num_topics = len(X_train[0])
 
     
     X_combined = X_train + X_test
     y_combined = y_train + y_test
     test_fold = np.array([-1 for i in range(len(X_train))] + [0 for i in range(len(X_test))])
+    logger_.info(f'Training on {np.where(test_fold==-1)[0].shape[0]} samples and testing on {np.where(test_fold==0)[0].shape[0]} samples')
     logger_.info(f'Staring random search for model {model_name} with topics {num_topics}...')
-    max_num_iterations = 1000
+    max_num_iterations = 4800
     grid = RandomizedSearchCV(clf, parameter_space, n_iter = max_num_iterations, cv=PredefinedSplit(test_fold), n_jobs=-1, scoring='f1', random_state = 42)
     grid.fit(X_combined, y_combined)
 
-    pdb.set_trace()
+#    pdb.set_trace()
     best_model = grid.best_estimator_
     best_model_params = best_model.coefs_
     y_pred_test = best_model.predict(X_test)
@@ -159,9 +155,9 @@ def grid_search(video_topic_feats_df, train_preds_dict, val_preds_dict, model_na
     dump(best_model, model_path)
     dump(best_model_params, model_params_path)
     json.dump(best_params, open(param_details_path, 'w'))
-    time_taken_log = f'Time taken for model {model_name} with topics {num_topics} is {time.time()-st_time} seconds for {max_num_iterations} iterations \n\n'
-    print(time_taken_log)
-    logger_.info(time_taken_log)
+    # time_taken_log = f'Time taken for model {model_name} with topics {num_topics} is {time.time()-st_time} seconds for {max_num_iterations} iterations \n\n'
+    # print(time_taken_log)
+    # logger_.info(time_taken_log)
     
 
 
@@ -197,7 +193,7 @@ if __name__=='__main__':
     print('Starting grid search for all models...')
     for model_name in ['bertopic', 'tfidf_model']:
         print(f'Starting gridsearch for model {model_name}...')
-        video_topic_feats_df = prepare_data(train_captions_df, val_captions_df, train_preds_dict, val_preds_dict, lda_type=model_name)
+        _, video_topic_feats_df = prepare_data(train_captions_df, val_captions_df, lda_type=model_name)
         model_dir = os.path.join(gridsearch_root_dir,f'{model_name}')
         makedir(model_dir)
         logger_ = setup_logger(f'{model_name}', model_dir)

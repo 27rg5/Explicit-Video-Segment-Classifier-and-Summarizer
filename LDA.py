@@ -76,7 +76,13 @@ def get_corpus_from_captions(captions_dict, lda_type='tfidf'):
                 if word not in stop_words]) for doc in texts]
             
     video_caption_dict = pd.Series(list(zip(captions_df['dataset_type'], captions_df['Caption'])),index=captions_df['Video path']).to_dict()
-    data = list(video_caption_dict.values())
+    #pdb.set_trace()
+    data = list()
+    for video_path, value in video_caption_dict.items():
+        dataset_type, caption = value
+        data.append(caption)
+
+    #pdb.set_trace()
     data_words = list(sent_to_words(data))
     video_paths = list(video_caption_dict.keys())
     data_words = remove_stopwords(data_words, True) if lda_type == 'bertopic' else remove_stopwords(data_words)

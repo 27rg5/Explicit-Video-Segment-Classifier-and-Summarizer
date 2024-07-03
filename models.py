@@ -135,7 +135,6 @@ class UnifiedModel(nn.Module):
         self.SpectrogramModel_obj = SpectrogramModel_obj
         self.relu1 = nn.ReLU()
         self.vanilla_fusion = vanilla_fusion 
-        self.mlp_fusion = mlp_fusion
         self.weighted_loss_mlp_fusion = weighted_loss_mlp_fusion
         self.mlp_object = mlp_object
         self.mlp = None
@@ -144,10 +143,10 @@ class UnifiedModel(nn.Module):
         self.linear1 = nn.Linear(self.out_dims, self.intermediate_dims)
         self.linear2 = nn.Linear(self.intermediate_dims, self.num_classes)
         if self.mlp_object:
-            self.mlp = MLP(mlp_object, linear1.out_features, self.weighted_loss_mlp_fusion)
+            self.mlp = MLP(mlp_object, self.linear1.out_features, self.weighted_loss_mlp_fusion)
             if not self.weighted_loss_mlp_fusion:
                 self.linear2 = nn.Linear(self.intermediate_dims+self.mlp.captionnet[-2].out_features, self.num_classes)
-        
+            #pdb.set_trace()
 
     def forward(self, language_model_in=None, video_classifier_in=None, audio_classifier_in=None, doc_topic_distr_in=None):
         """
@@ -158,7 +157,6 @@ class UnifiedModel(nn.Module):
             @param audio_classifier_in: the processed audio input from dataset class
         """
         # print('In forward in unified model')
-        # pdb.set_trace()
         language_model_out = self.LanguageModel_obj(language_model_in) if self.LanguageModel_obj else None
         video_classifier_out = self.VideModel_obj(video_classifier_in) if self.VideModel_obj else None
         audio_classifier_out = self.SpectrogramModel_obj(audio_classifier_in) if self.SpectrogramModel_obj else None
@@ -176,7 +174,7 @@ class UnifiedModel(nn.Module):
 
         x = self.linear1(x)
         x = self.relu1(x)
-        if self.mlp_fusion:
+        if self.mlp_object:
             if not self.weighted_loss_mlp_fusion:
                 x = torch.cat([x, caption_classifier_out], dim=-1) 
         x = self.linear2(x)

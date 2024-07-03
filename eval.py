@@ -5,7 +5,6 @@ import csv
 import torch
 import pickle
 import argparse
-from Lda import LDA
 import pandas as pd
 from tqdm import tqdm
 import torch.nn as nn
@@ -65,7 +64,8 @@ def inference_on_val(non_encoded_videos_path, videos_pkl, eval_dataset_type, cla
     'all_encoded_videos':videos,
     'encoded_video_obj':EncodeVideo_obj,
     'device':device,
-    'modalities':modalities
+    'modalities':modalities,
+    'all_captions_dict':None
     }
 
     val_dataset = VideoClipDataset(**val_dataset_dict)
@@ -80,7 +80,7 @@ def inference_on_val(non_encoded_videos_path, videos_pkl, eval_dataset_type, cla
     videos = list()
     captions = list() 
     class_from_lda = list()
-    lda = LDA()
+    
 
     if run_caption_model:
         processor = AutoProcessor.from_pretrained("microsoft/git-large-vatex")
@@ -92,7 +92,7 @@ def inference_on_val(non_encoded_videos_path, videos_pkl, eval_dataset_type, cla
 
     for i, modality_inputs in tqdm(enumerate(val_dataloader)):
         with torch.no_grad():
-            video_path, transformed_video, processed_speech, spectrogram_enc, target = modality_inputs
+            video_path, transformed_video, processed_speech, spectrogram_enc, caption, target = modality_inputs
 
             if run_caption_model:
                 summarized_string = summarize(video_path[0], model, processor, device)      
@@ -140,7 +140,7 @@ if __name__=='__main__':
     parser.add_argument('--get_classified_list', action='store_true')
     parser.add_argument('--pairwise_attention_modalities', action='store_true')
     parser.add_argument('--vanilla_fusion', action='store_true')    
-    parser.add_argument('--eval_dataset_type', type=str,help='train or test')    
+    parser.add_argument('--eval_dataset_type', type=str,help='train or val')    
     parser.add_argument('--modalities',nargs='+',default='video audio text',help='Add modality names out of video, audio, text')
 
     
