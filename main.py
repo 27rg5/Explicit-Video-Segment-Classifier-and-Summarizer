@@ -2,6 +2,7 @@ import os
 import pdb
 import yaml
 import torch
+import random
 import joblib
 import shutil
 import pickle
@@ -103,11 +104,12 @@ def get_train_val_split_videos(root_dir, encoded_videos_path, mlp_fusion=False, 
 
 
 def train_val(**train_val_arg_dict):
-    unifiedmodel_obj, optimizer, train_dataloader, val_dataloader, n_epochs, print_every, experiment_dir, loss_, bce_with_logits_loss, device, trainable_weight1, trainable_weight2 = train_val_arg_dict.values()
+    unifiedmodel_obj, optimizer, train_dataloader, val_dataloader, n_epochs, print_every, experiment_dir, loss_, bce_with_logits_loss, device, trainable_weight2 = train_val_arg_dict.values()
     writer = SummaryWriter(experiment_dir)
     train_losses = list()
     val_losses = list()
     best_loss = float('inf')
+    best_f1_score = float('-inf')
     softmax = nn.Softmax(dim=1)
     n_iters_train = 0
     n_iters_val = 0
@@ -136,11 +138,11 @@ def train_val(**train_val_arg_dict):
 
             optimizer.zero_grad()
             predictions_tuple = unifiedmodel_obj(processed_speech, transformed_video, spectrogram, caption)
-            if isinstance(predictions_tuple, tuple) and trainable_weight1 and trainable_weight2:
+            if isinstance(predictions_tuple, tuple) and trainable_weight2: #and trainable_weight1:
                 predictions, captionnet_preds = predictions_tuple
-                positive_weight1 = torch.exp(trainable_weight1)
+                #positive_weight1 = torch.exp(trainable_weight1)
                 positive_weight2 = torch.exp(trainable_weight2)
-                batch_loss = positive_weight1*loss_(predictions, target) + positive_weight2*bce_with_logits_loss(captionnet_preds, target.unsqueeze(0).to(torch.float32))
+                batch_loss = loss_(predictions, target) + positive_weight2*bce_with_logits_loss(captionnet_preds, target.unsqueeze(0).to(torch.float32))
             else:
                 batch_loss = loss_(predictions_tuple, target)
 
@@ -165,10 +167,10 @@ def train_val(**train_val_arg_dict):
         writer.add_scalar("Loss/train", epoch_loss_train/len(train_dataloader), epoch+1)
         preds_train = torch.tensor(preds_train)
         targets_train = torch.tensor(targets_train)
-        f1_score = multiclass_f1_score(preds_train, targets_train, num_classes=2, average="macro").item()
-        writer.add_scalar("F1/train", f1_score, epoch+1)
+        f1_score_train = multiclass_f1_score(preds_train, targets_train, num_classes=2, average="macro").item()
+        writer.add_scalar("F1/train", f1_score_train, epoch+1)
         average_train_loss_per_epoch = epoch_loss_train/len(train_dataloader)
-        print('For epoch:{} the average train loss: {} and the accuracy: {} and F1-macro score: {}'.format(epoch+1, average_train_loss_per_epoch, correct_train_preds/len(train_dataloader), f1_score))
+        print('For epoch:{} the average train loss: {} and the accuracy: {} and F1-macro score: {}'.format(epoch+1, average_train_loss_per_epoch, correct_train_preds/len(train_dataloader), f1_score_train))
         train_losses.append(average_train_loss_per_epoch)
     
 
@@ -191,11 +193,11 @@ def train_val(**train_val_arg_dict):
 
                 predictions_tuple = unifiedmodel_obj(processed_speech, transformed_video, spectrogram, caption)
                 
-                if isinstance(predictions_tuple, tuple) and trainable_weight1 and trainable_weight2:
+                if isinstance(predictions_tuple, tuple) and trainable_weight2: #and trainable_weight1:
                     predictions, captionnet_preds = predictions_tuple
-                    positive_weight1 = torch.exp(trainable_weight1)
+                    #positive_weight1 = torch.exp(trainable_weight1)
                     positive_weight2 = torch.exp(trainable_weight2)
-                    batch_loss = positive_weight1*loss_(predictions, target) + positive_weight2*bce_with_logits_loss(captionnet_preds, target.unsqueeze(0).to(torch.float32))
+                    batch_loss = loss_(predictions, target) + positive_weight2*bce_with_logits_loss(captionnet_preds, target.unsqueeze(0).to(torch.float32))
                 else:
                     batch_loss = loss_(predictions_tuple, target)
 
@@ -216,15 +218,35 @@ def train_val(**train_val_arg_dict):
         writer.add_scalar("Loss/val", epoch_loss_val/len(val_dataloader), epoch+1)
         preds_val = torch.tensor(preds_val)
         targets_val = torch.tensor(targets_val)
-        f1_score = multiclass_f1_score(preds_val, targets_val, num_classes=2, average="macro").item()
-        writer.add_scalar("F1/val", f1_score, epoch+1)
+        f1_score_val = multiclass_f1_score(preds_val, targets_val, num_classes=2, average="macro").item()
+        writer.add_scalar("F1/val", f1_score_val, epoch+1)
         average_val_loss_per_epoch = epoch_loss_val/len(val_dataloader)
-        print('For epoch:{} the average val loss: {} and the accuracy:{} and F1-macro score: {}'.format(epoch+1, average_val_loss_per_epoch, correct_val_preds/len(val_dataloader),  f1_score))
+        print('For epoch:{} the average val loss: {} and the accuracy:{} and F1-macro score: {}'.format(epoch+1, average_val_loss_per_epoch, correct_val_preds/len(val_dataloader),  f1_score_val))
         val_losses.append(average_val_loss_per_epoch)
 
+        #Save model which has best validation loss
         if average_val_loss_per_epoch < best_loss:
+            random_state_dict = {
+                'python_random_state':random.getstate(),
+                'numpy_random_state':np.random.get_state(),
+                'torch_random_state':torch.get_rng_state(),
+                'cuda_random_state':torch.cuda.get_rng_state() if device.type=='cuda' else None,
+            }
             best_loss = average_val_loss_per_epoch
-            torch.save(unifiedmodel_obj.state_dict(), os.path.join(experiment_dir, 'best_checkpoint.pth'))
+            checkpoint_dict = {
+                'start_epoch':epoch+1,
+                'optimizer_state_dict':optimizer.state_dict(),
+                'model_state_dict':unifiedmodel_obj.state_dict(),
+                'best_loss':best_loss,
+                'random_state_dict':random_state_dict
+            }
+            torch.save(checkpoint_dict, os.path.join(experiment_dir, 'best_checkpoint.pth'))
+
+        #Save model which has best validation f1-score
+        # if f1_score_val > best_f1_score:
+        #     best_f1_score = f1_score_val
+        #     torch.save(unifiedmodel_obj.state_dict(), os.path.join(experiment_dir, 'best_checkpoint.pth'))
+
     writer.flush()
 
 
@@ -327,11 +349,12 @@ if __name__=='__main__':
     self_attention = not pairwise_attention_modalities
     UnifiedModel_obj = UnifiedModel(out_dims, intermediate_dims, in_dims, vanilla_fusion, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj, mlp_object, weighted_loss_mlp_fusion).to(device)
 
-    trainable_weight1, trainable_weight2 = None, None
+    #trainable_weight1, trainable_weight2 = None, None
+    trainable_weight2 = None
     if weighted_loss_mlp_fusion:
-        trainable_weight1 = nn.Parameter(torch.empty(1).uniform_(0, 1).to(device))
+        #trainable_weight1 = nn.Parameter(torch.empty(1).uniform_(0, 1).to(device))
         trainable_weight2 = nn.Parameter(torch.empty(1).uniform_(0, 1).to(device))
-        params_for_optim = list(UnifiedModel_obj.parameters())+[trainable_weight1, trainable_weight2]
+        params_for_optim = list(UnifiedModel_obj.parameters())+[trainable_weight2]#[trainable_weight1, trainable_weight2]
     else:
         params_for_optim = UnifiedModel_obj.parameters()
 
@@ -411,7 +434,7 @@ if __name__=='__main__':
         'loss':loss_,
         'bce_with_logits_loss':bce_with_logits_loss,
         'device':device,
-        'trainable_weight1':trainable_weight1,
+        #'trainable_weight1':trainable_weight1,
         'trainable_weight2':trainable_weight2
     }
     train_val(**train_val_arg_dict)
