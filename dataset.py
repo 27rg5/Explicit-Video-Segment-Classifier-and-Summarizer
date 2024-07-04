@@ -37,40 +37,42 @@ class VideoClipDataset(Dataset):
             @param device: "cuda" or "cpu"
         """
     
-        self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device = dataset_dict.values()
-        self.all_non_encoded_videos_path = os.path.join(self.root_dir_path,'processed_data/non_encoded_videos')
-        self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(glob.glob(os.path.join(self.root_dir_path,'processed_data/encoded_videos/*')))} #Map class name to id
-
+        self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device, self.modalities, self.caption_df_dict = dataset_dict.values()
+        self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))} #Map class name to id
+        
     def __getitem__(self, index):
-        audio_enc_path = glob.glob(os.path.join(self.encoded_videos[index], 'audio_encs/*'))
-        assert len(audio_enc_path)==1
-        audio_enc_path = audio_enc_path[0]
-        class_audio_enc = audio_enc_path.split('/')[-4]
-        #video_path = os.path.join(self.all_non_encoded_videos_path, class_audio_enc, self.encoded_videos[index].split('/')[-1])
-        video_path = os.path.join(self.all_non_encoded_videos_path, self.encoded_videos[index].split('/')[-1])
-        spectrogram_enc_path = glob.glob(os.path.join(self.encoded_videos[index], 'spectro_encs/*'))
-        assert len(spectrogram_enc_path)==1
-        spectrogram_enc_path = spectrogram_enc_path[0]
-        spectrogram_enc = pickle.load(open(spectrogram_enc_path,'rb'))
-        video_enc = self.EncodeVideo_obj.get_video(video_path)
-        audio_enc = pickle.load(open(audio_enc_path,'rb'))['processed_speech']
+        video_enc, audio_enc,  spectrogram_enc, caption = 0, 0, 0, ''
+        subclip_num, ext = self.encoded_videos[index].split('/')[-1].split('_')[-1].split('.')
 
-        video_enc = [elem.to(self.device) for elem in video_enc]
-        audio_enc = {key:audio_enc[key].to(self.device) for key in audio_enc.keys()}
-        #if spectrogram_enc:
-        spectrogram_enc = torch.from_numpy(spectrogram_enc).to(self.device)
-        class_audio_enc = self.classes[class_audio_enc]
-        class_audio_enc = torch.tensor(class_audio_enc).to(self.device)
-        return self.encoded_videos[index], video_enc, audio_enc, spectrogram_enc, class_audio_enc
-        #return self.encoded_videos[index], video_enc, audio_enc, class_audio_enc
-        #return self.encoded_videos[index], video_enc, class_audio_enc
-        #return self.encoded_videos[index], audio_enc, class_audio_enc
-        #return self.encoded_videos[index], spectrogram_enc, class_audio_enc
+        if self.caption_df_dict:
+            try:
+                caption = torch.Tensor(self.caption_df_dict[self.encoded_videos[index]][1])
+            except:
+                pdb.set_trace()
+            
+
+        if 'video' in self.modalities:
+            video_path = self.encoded_videos[index]
+            video_enc = self.EncodeVideo_obj.get_video(video_path)
+
+        if 'text' in self.modalities:
+            audio_enc_path = self.encoded_videos[index].replace('video_subclips','audio_encs').replace('_'+subclip_num+'.'+ext,'_audio_enc_'+subclip_num)
+            audio_enc = pickle.load(open(audio_enc_path,'rb'))['processed_speech']
+
+        if 'audio' in self.modalities:    
+            spectrogram_enc_path = self.encoded_videos[index].replace('video_subclips','spectro_encs').replace('_'+subclip_num+'.'+ext,'_spectro_enc_'+subclip_num)
+            spectrogram_enc = pickle.load(open(spectrogram_enc_path,'rb'))['processed_spectro']
+            spectrogram_enc = torch.from_numpy(spectrogram_enc)
+
+        class_str = self.encoded_videos[index].split('/')[-4]
+        class_ = self.classes[class_str]
+        
+        return self.encoded_videos[index], video_enc, audio_enc, spectrogram_enc, caption, class_
 
     def __len__(self):
         return len(self.encoded_videos)
 
-
+    
 if __name__=='__main__':
     root_dir_path = os.path.join(os.path.expanduser('~'), 'cls_data')
     dataset_dict = {
