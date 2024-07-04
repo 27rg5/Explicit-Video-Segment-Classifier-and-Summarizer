@@ -18,7 +18,6 @@ from transformers import AutoProcessor, AutoModelForCausalLM
 from models import LanguageModel, UnifiedModel, SpectrogramModel
 from torcheval.metrics.functional import multiclass_f1_score
 
-
 def inference_on_val(non_encoded_videos_path, videos_pkl, eval_dataset_type, classes, checkpoint_path, root_dir_path, EncodeVideo_obj, modalities=['video','audio','text'], vanilla_fusion=False, pairwise_attention_modalities=False, experiment_name=None, get_classified_list=None, language_model_name='distilbert-base-uncased', video_model_name='slowfast_r50', spectrogram_model_name='resnet18', device='cuda:0', run_caption_model=False):
 
     LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj = None, None, None
@@ -113,8 +112,6 @@ def inference_on_val(non_encoded_videos_path, videos_pkl, eval_dataset_type, cla
                 preds_val.append(pred_softmax.cpu().item())
                 targets_val.append(target.cpu().item())
                 videos.append(video_path)
-
-
         
     targets_val = torch.tensor(targets_val)
     preds_val = torch.tensor(preds_val)

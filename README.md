@@ -3,7 +3,7 @@ To install whisper strictly use 'pip install git+https://github.com/openai/whisp
 
 python version = 3.10.0
 
-In this project our objective is to take a video and extract the smaller segments of this video that contain explicit content and give a natural language summary of those video segments. We took a subset of two public datasets and just included the videos that came under 1 minute. For faster training we encoded the audio and language data in the form of audio and spectrogram encodings. The hierarchy of our data is
+In this project our objective is to take a video and extract the smaller segments of this video that contain explicit content and give a natural language summary of those video segments. We took a subset of two public datasets. For faster training we encoded the audio and language data in the form of audio and spectrogram encodings. The hierarchy of our data is
 
     - cls_data
       - processed_data
@@ -26,11 +26,12 @@ To install create a conda environment of python version 3.10.0 strictly
 Install whisper strictly use `pip install git+https://github.com/openai/whisper.git`
 Then run `pip install -r requirements.txt`
 
-Below is the diagram of our pipeline
+Below are the diagrams of our pipeline
 
-
- ![Alt Text](https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/main/Pipeline.jpeg)
-
+<p align="center">
+     <img src="https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/master/pipeline1.jpg" alt="Pipeline">
+     <img src="https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/master/pipeline2.jpg" alt="Attention Mechanism">
+</p>
 
 To train the model run
 ```
@@ -69,5 +70,6 @@ To run the demo for the entire pipeline
 
 Below is an example output from our pipeline
 
-
-![Alt text](https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/main/Demo.jpeg)
+<p align="center">
+    <img src="https://github.com/27rg5/Explicit-Video-Segment-Classifier-and-Summarizer/blob/master/results.jpeg" alt="Results">
+</p>

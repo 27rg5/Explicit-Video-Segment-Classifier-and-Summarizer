@@ -75,7 +75,6 @@ class LanguageModel(nn.Module):
 
             @param tokenized_text: Text tokenized using BERT
         """
-        
         if not self.demo:
             tokenized_text['input_ids'] = tokenized_text['input_ids'].squeeze(0)
             tokenized_text['attention_mask'] = tokenized_text['attention_mask'].squeeze(0)
@@ -171,6 +170,7 @@ class UnifiedModel(nn.Module):
         else:
             tensor_non_null_list = [elem for elem in [language_model_out, video_classifier_out, audio_classifier_out] if elem is not None] 
             x = torch.cat(tensor_non_null_list, dim=-1)
+
 
         x = self.linear1(x)
         x = self.relu1(x)
