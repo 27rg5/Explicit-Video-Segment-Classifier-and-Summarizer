@@ -46,8 +46,8 @@ def inference_on_val(videos_pkl, eval_dataset_type, classes, checkpoint_path, ro
             out_dims = 600
     else:
         #Concate and then self-attention
-        in_dims = 600
-        out_dims = 600    
+        in_dims = 910
+        out_dims = 910    
 
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities

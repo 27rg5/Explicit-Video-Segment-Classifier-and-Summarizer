@@ -113,8 +113,22 @@ def train_val(**train_val_arg_dict):
     softmax = nn.Softmax(dim=1)
     n_iters_train = 0
     n_iters_val = 0
+    start_epoch = 0
+    if resume:
+        checkpoint = torch.load(os.path.join(experiment_dir, 'best_checkpoint.pth'))
+        unifiedmodel_obj.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        best_loss = checkpoint['best_loss']
+        start_epoch = checkpoint['start_epoch']
+        random.setstate(checkpoint['random_state_dict']['python_random_state'])
+        np.random.set_state(checkpoint['random_state_dict']['numpy_random_state'])
+        torch.set_rng_state(checkpoint['random_state_dict']['torch_random_state'])
+        if device.type=='cuda':
+            torch.cuda.set_rng_state(checkpoint['random_state_dict']['cuda_random_state'])
+        print('Resuming training from epoch:{}'.format(start_epoch))
+
     
-    for epoch in range(n_epochs):
+    for epoch in range(start_epoch, n_epochs):
         #train
         print('\n\n Epoch: {}'.format(epoch+1))
         print('\n Train')
@@ -128,12 +142,13 @@ def train_val(**train_val_arg_dict):
 
         for i, modality_inputs in enumerate(train_dataloader):
             _, transformed_video, processed_speech, spectrogram, caption, target = modality_inputs
-            if transformed_video!=0:
+            if not isinstance(transformed_video, int):
                 transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
-            if processed_speech!=0:
+            if not isinstance(processed_speech, int):
                 processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
             spectrogram = spectrogram.to(device, non_blocking=True)
-            caption = caption.to(device, non_blocking=True)
+            if not isinstance(caption, int):
+                caption = caption.to(device, non_blocking=True)
             target = target.to(device, non_blocking=True)
 
             optimizer.zero_grad()
@@ -144,7 +159,8 @@ def train_val(**train_val_arg_dict):
                 positive_weight2 = torch.exp(trainable_weight2)
                 batch_loss = loss_(predictions, target) + positive_weight2*bce_with_logits_loss(captionnet_preds, target.unsqueeze(0).to(torch.float32))
             else:
-                batch_loss = loss_(predictions_tuple, target)
+                predictions = predictions_tuple
+                batch_loss = loss_(predictions, target)
 
             batch_loss.backward()
             optimizer.step()
@@ -182,14 +198,14 @@ def train_val(**train_val_arg_dict):
         for i, modality_inputs in enumerate(val_dataloader):
             with torch.no_grad():
                 _, transformed_video, processed_speech,spectrogram, caption, target = modality_inputs
-                if transformed_video!=0:
+                if not isinstance(transformed_video, int):
                     transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
-                if processed_speech!=0:
+                if not isinstance(processed_speech, int):
                     processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
 
                 spectrogram = spectrogram.to(device, non_blocking=True)
                 target = target.to(device, non_blocking=True)
-                if caption!=0 :
+                if not isinstance(caption, int):
                     caption = caption.to(device, non_blocking=True)
 
                 predictions_tuple = unifiedmodel_obj(processed_speech, transformed_video, spectrogram, caption)
@@ -200,7 +216,9 @@ def train_val(**train_val_arg_dict):
                     positive_weight2 = torch.exp(trainable_weight2)
                     batch_loss = loss_(predictions, target) + positive_weight2*bce_with_logits_loss(captionnet_preds, target.unsqueeze(0).to(torch.float32))
                 else:
-                    batch_loss = loss_(predictions_tuple, target)
+                    predictions = predictions_tuple
+                    batch_loss = loss_(predictions, target)
+                    
 
                 pred_softmax = softmax(predictions)
                 pred_softmax = torch.argmax(pred_softmax, dim=1)
@@ -249,6 +267,7 @@ def train_val(**train_val_arg_dict):
         #     torch.save(unifiedmodel_obj.state_dict(), os.path.join(experiment_dir, 'best_checkpoint.pth'))
 
     writer.flush()
+    writer.close()
 
 
 
@@ -274,6 +293,8 @@ if __name__=='__main__':
     parser.add_argument('--lda_type', type=str, default='tfidf', help='type of lda, put one out of tfidf or bertopic')
     parser.add_argument('--load_captions_from_exp_dir', type=str,help='existing experiment_dir having train_val captions')
     parser.add_argument('--device',type=str,default='cuda:0', help='Use one of cuda:0, cuda:1, ....')
+    parser.add_argument('--resume', action='store_true')
+
     args = parser.parse_args()
 
     device = torch.device(args.device) if args.device else torch.device('cpu')
@@ -284,6 +305,7 @@ if __name__=='__main__':
     learning_rate = args.learning_rate
     root_dir = args.root_dir
     lda_type = args.lda_type
+    resume = args.resume
     language_model_name = args.language_model_name
     spectrogram_model_name = args.spectrogram_model_name
     video_model_name = args.video_model_name
@@ -298,7 +320,7 @@ if __name__=='__main__':
 
     runs_dir = os.path.join(os.getcwd(),'runs')
     experiment_dir = os.path.join(runs_dir, experiment_name)
-    if os.path.exists(experiment_dir):
+    if os.path.exists(experiment_dir) and not resume:
         shutil.rmtree(experiment_dir)
     load_captions_from_exp_dir = os.path.join(runs_dir,args.load_captions_from_exp_dir)
     makedir(runs_dir)
@@ -343,8 +365,8 @@ if __name__=='__main__':
             out_dims = 600
     else:
         #Concatenate and then self-attention
-        in_dims = 600
-        out_dims = 600    
+        in_dims = 910
+        out_dims = 910    
 
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities
