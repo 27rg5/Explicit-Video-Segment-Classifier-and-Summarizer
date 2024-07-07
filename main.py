@@ -189,7 +189,8 @@ def train_val(**train_val_arg_dict):
 
                 spectrogram = spectrogram.to(device, non_blocking=True)
                 target = target.to(device, non_blocking=True)
-                caption = caption.to(device, non_blocking=True)
+                if caption!=0 :
+                    caption = caption.to(device, non_blocking=True)
 
                 predictions_tuple = unifiedmodel_obj(processed_speech, transformed_video, spectrogram, caption)
                 
