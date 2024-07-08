@@ -45,10 +45,7 @@ class VideoClipDataset(Dataset):
         subclip_num, ext = self.encoded_videos[index].split('/')[-1].split('_')[-1].split('.')
 
         if self.caption_df_dict:
-            try:
-                caption = torch.Tensor(self.caption_df_dict[self.encoded_videos[index]][1])
-            except:
-                pdb.set_trace()
+            caption = torch.Tensor(self.caption_df_dict[self.encoded_videos[index]][1])
             
 
         if 'video' in self.modalities:

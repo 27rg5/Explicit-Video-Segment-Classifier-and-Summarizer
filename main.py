@@ -93,7 +93,7 @@ def get_train_val_split_videos(root_dir, encoded_videos_path, mlp_fusion=False, 
         all_captions_dict = dict(zip(all_captions['Video path'].values, zip(all_captions['dataset_type'].values, all_captions['Caption'].values)))
 
     
-    assert len(train_videos)+len(val_videos)==len(all_captions_dict), 'Number of videos captioned and number of videos available don\'t match'
+        assert len(train_videos)+len(val_videos)==len(all_captions_dict), 'Number of videos captioned and number of videos available don\'t match'
     
     print('Explicit train ',len(explicit_videos_train))
     print('Non_explicit train ',len(non_explicit_videos_train))
@@ -322,7 +322,7 @@ if __name__=='__main__':
     experiment_dir = os.path.join(runs_dir, experiment_name)
     if os.path.exists(experiment_dir) and not resume:
         shutil.rmtree(experiment_dir)
-    load_captions_from_exp_dir = os.path.join(runs_dir,args.load_captions_from_exp_dir)
+    load_captions_from_exp_dir = os.path.join(runs_dir,args.load_captions_from_exp_dir) if args.load_captions_from_exp_dir else None
     makedir(runs_dir)
     makedir(experiment_dir)
 
@@ -339,17 +339,6 @@ if __name__=='__main__':
             mlp_object = torch.load(mlp_object_path)
         
         
-    
-
-    ##Model init
-    LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj = None, None, None
-    if 'text' in modalities:
-        LanguageModel_obj = LanguageModel(model_name = language_model_name)
-    if 'video' in modalities:
-        VideoModel_obj = VideoModel(model_name = video_model_name)
-    if 'audio' in modalities:
-        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
-    
     if pairwise_attention_modalities:
         #Pairwise attention
         in_dims = 200
@@ -367,6 +356,17 @@ if __name__=='__main__':
         #Concatenate and then self-attention
         in_dims = 910
         out_dims = 910    
+    
+
+    ##Model init
+    LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj = None, None, None
+    if 'text' in modalities:
+        LanguageModel_obj = LanguageModel(model_name = language_model_name, out_embed_dim=310)
+    if 'video' in modalities:
+        VideoModel_obj = VideoModel(model_name = video_model_name, out_embed_dim=300)
+    if 'audio' in modalities:
+        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name, out_embed_dim=300)
+    
 
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities

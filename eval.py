@@ -23,11 +23,11 @@ def inference_on_val(videos_pkl, eval_dataset_type, classes, checkpoint_path, ro
 
     LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj = None, None, None
     if 'text' in modalities:
-        LanguageModel_obj = LanguageModel(model_name = language_model_name)
+        LanguageModel_obj = LanguageModel(model_name = language_model_name, out_embed_dim=310)
     if 'video' in modalities:
-        VideoModel_obj = VideoModel(model_name = video_model_name)
+        VideoModel_obj = VideoModel(model_name = video_model_name, out_embed_dim=300)
     if 'audio' in modalities:
-        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
+        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name, out_embed_dim=300)
 
     batch_size = 1
     softmax = nn.Softmax(dim=1)
