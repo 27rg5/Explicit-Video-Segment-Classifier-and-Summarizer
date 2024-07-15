@@ -22,12 +22,19 @@ from torcheval.metrics.functional import multiclass_f1_score
 def inference_on_val(videos_pkl, eval_dataset_type, classes, checkpoint_path, root_dir_path, EncodeVideo_obj, modalities=['video','audio','text'], vanilla_fusion=False, pairwise_attention_modalities=False, experiment_name=None, get_classified_list=None, language_model_name='distilbert-base-uncased', video_model_name='slowfast_r50', spectrogram_model_name='resnet18', device='cuda:0', all_captions_dict=None, mlp_object=None, weighted_loss_mlp_fusion=None, run_caption_model=False):
 
     LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj = None, None, None
+    in_dims_self_attention = 0
     if 'text' in modalities:
         LanguageModel_obj = LanguageModel(model_name = language_model_name)
+        in_dims_self_attention+=LanguageModel_obj.model.classifier.out_features
     if 'video' in modalities:
         VideoModel_obj = VideoModel(model_name = video_model_name)
+        in_dims_self_attention+=VideoModel_obj._modules['model'].blocks._modules['6'].proj.out_features
     if 'audio' in modalities:
         SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
+        in_dims_self_attention+=_modules['model'].fc.out_features
+    if mlp_object:
+        in_dims_self_attention+=mlp_object.hidden_layer_sizes[-1]
+        
 
     batch_size = 1
     softmax = nn.Softmax(dim=1)
@@ -46,8 +53,8 @@ def inference_on_val(videos_pkl, eval_dataset_type, classes, checkpoint_path, ro
             out_dims = 600
     else:
         #Concate and then self-attention
-        in_dims = 910
-        out_dims = 910    
+        in_dims = in_dims_self_attention
+        out_dims = in_dims
 
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities
