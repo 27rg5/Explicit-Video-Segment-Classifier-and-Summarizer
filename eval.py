@@ -31,7 +31,7 @@ def inference_on_val(videos_pkl, eval_dataset_type, classes, checkpoint_path, ro
         in_dims_self_attention+=VideoModel_obj._modules['model'].blocks._modules['6'].proj.out_features
     if 'audio' in modalities:
         SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
-        in_dims_self_attention+=_modules['model'].fc.out_features
+        in_dims_self_attention+=SpectrogramModel_obj._modules['model'].fc.out_features
     if mlp_object:
         in_dims_self_attention+=mlp_object.hidden_layer_sizes[-1]
         
@@ -111,9 +111,10 @@ def inference_on_val(videos_pkl, eval_dataset_type, classes, checkpoint_path, ro
                 csv_writer.writerow([video_path[0], summarized_string,''])#, class_from_lda[i]])
                 ## embed, use lda over it and predict the class
             else:
-                if not isinstance(transformed_video, int):
+                if not isinstance(transformed_video, int) and not isinstance(transformed_video, torch.Tensor):
                     transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
-                if not isinstance(processed_speech, int):
+                if not isinstance(processed_speech, int) and not isinstance(processed_speech, torch.Tensor):
+                    #pdb.set_trace()
                     processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
 
                 spectrogram = spectrogram.to(device, non_blocking=True)

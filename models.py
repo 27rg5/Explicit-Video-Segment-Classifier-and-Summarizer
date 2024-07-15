@@ -154,7 +154,8 @@ class UnifiedModel(nn.Module):
         #     self.mlp_out_dims = self.LanguageModel_obj.model.classifier.out_features
         
         # self.mlp_out_dims = self.LanguageModel_obj.model.classifier.out_features if self.LanguageModel_obj  self.VideModel_obj.model._modules['blocks']._modules['6'].proj + self.SpectrogramModel_obj.model._modules['fc']
-        self.mlp = MLP(mlp_object, self.weighted_loss_mlp_fusion)
+        if self.mlp_object:
+            self.mlp = MLP(mlp_object, self.weighted_loss_mlp_fusion)
 
 
     def forward(self, language_model_in=None, video_classifier_in=None, audio_classifier_in=None, doc_topic_distr_in=None):
