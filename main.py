@@ -289,7 +289,7 @@ if __name__=='__main__':
     parser.add_argument('--vanilla_fusion', action='store_true', help='boolean if true late fusion will be simple concatenation')
     parser.add_argument('--mlp_fusion', action='store_true', help='if set CaptionNet embeddings will be present for late fusion along with other modalities')
     parser.add_argument('--weighted_loss_mlp_fusion', action='store_true', 'if set loss function will be combination of the original pipeline and mlp considered separately')
-    parser.add_argument('--mlp_object_path', type=str, default='', help='path to the sklearn/pytorch mlp object')
+    parser.add_argument('--mlp_object_path', type=str, default='', help='path to the trained sklearn/pytorch mlp object')
     parser.add_argument('--lda_type', type=str, default='tfidf', help='type of lda, put one out of tfidf or bertopic')
     parser.add_argument('--load_captions_from_exp_dir', type=str,help='existing experiment_dir having train_val captions')
     parser.add_argument('--device',type=str,default='cuda:0', help='Use one of cuda:0, cuda:1, ....')
