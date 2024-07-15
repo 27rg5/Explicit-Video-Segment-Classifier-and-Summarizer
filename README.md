@@ -53,8 +53,9 @@ python -W ignore main.py --n_epochs 20 --learning_rate 1e-3 --optimizer_name SGD
 `print_every` - Number of iterations or batches after which the running loss will be printed
 
 To run the evaluation for explicit vs non_explicit classifier
+Please refer run_evals.sh for every experiment done so far. An example evaluation command for our best model:
 ```
-python eval.py --root_dir_path ~/cls_data --experiment_name sgd_lr_1e-3_macro_f1_with_seed_42_feats_200_200 --get_classified_list 
+python -W ignore eval.py --root_dir_path ~/cls_data_1_min --experiment_name attention_fusion_default_networks_self_attention_21epochs_caption_modality --get_classified_list --eval_dataset_type val --mlp_fusion --mlp_object_path '<directory containing the sklearn mlp object>/best_model_bertopic_test_f1_0.782608695652174.pkl'
 ```
 
 `root_dir_path` - The root directory of all data
