@@ -5,7 +5,7 @@ import torch.nn as nn
 from transformers import AutoModelForSequenceClassification
 
 class MLP(nn.Module):
-    def __init__(self, captionnet, fc_layer_unified_model_dims, weighted_loss_strategy=False):
+    def __init__(self, captionnet, weighted_loss_strategy=False):
         super(MLP, self).__init__()
 
         self.captionnet = sk2torch.wrap(captionnet).to(torch.float)
@@ -17,7 +17,7 @@ class MLP(nn.Module):
 
         if not self.weighted_loss_strategy:
             self.captionnet = self.captionnet[:-1]
-            self.captionnet.append(nn.Linear(in_features, fc_layer_unified_model_dims))
+            self.captionnet.append(nn.Linear(in_features, in_features))
             self.captionnet.append(nn.ReLU())
     
     def forward(self, x):
@@ -93,20 +93,26 @@ class LateFusionWithAttention(nn.Module):
         self.hidden_dim = hidden_dim 
         self.multiheadattention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=1, batch_first=True)
 
-    def forward(self, language_model_out, video_classifier_out, audio_classifier_out):
+    def forward(self, language_model_out, video_classifier_out, audio_classifier_out, caption_classifier_out):
         
         if not self.self_attention:
             # Pairwise attention
             atten1, _ = self.multiheadattention(language_model_out, video_classifier_out, audio_classifier_out)
             atten2, _ = self.multiheadattention(language_model_out, audio_classifier_out, video_classifier_out)
             atten3, _ = self.multiheadattention(audio_classifier_out, video_classifier_out, language_model_out)
-            atten4, _ = self.multiheadattention(audio_classifier_out, language_model_out, video_classifier_out)
-            atten5, _ = self.multiheadattention(video_classifier_out, language_model_out, audio_classifier_out)
-            atten6, _ = self.multiheadattention(video_classifier_out, audio_classifier_out, language_model_out)
-            concatenated_attention = torch.cat([atten1, atten2, atten3, atten4, atten5, atten6], dim=-1).squeeze(1)
+            atten4, _ = self.multiheadattention(language_model_out, caption_classifier_out, audio_classifier_out)
+            atten5, _ = self.multiheadattention(language_model_out, caption_classifier_out, video_classifier_out)
+            atten6, _ = self.multiheadattention(video_classifier_out, caption_classifier_out, audio_classifier_out)
+            atten7, _ = self.multiheadattention(video_classifier_out, caption_classifier_out, language_model_out)
+            atten8, _ = self.multiheadattention(audio_classifier_out, caption_classifier_out, video_classifier_out)
+            atten9, _ = self.multiheadattention(audio_classifier_out, caption_classifier_out, language_model_out)
+            atten10, _ = self.multiheadattention(language_model_out, video_classifier_out, caption_classifier_out)
+            atten11, _ = self.multiheadattention(video_classifier_out, audio_classifier_out, caption_classifier_out)
+            atten12, _ = self.multiheadattention(audio_classifier_out, language_model_out, caption_classifier_out)
+            concatenated_attention = torch.cat([atten1, atten2, atten3, atten4, atten5, atten6, atten7, atten8, atten9, atten10, atten11, atten12], dim=-1).squeeze(1)
         else:
             # Concatenate and then self-attention
-            concat_modalities = torch.cat([language_model_out, video_classifier_out, audio_classifier_out], dim=-1)
+            concat_modalities = torch.cat([language_model_out, video_classifier_out, audio_classifier_out, caption_classifier_out], dim=-1)
             concatenated_attention,_ = self.multiheadattention(concat_modalities, concat_modalities, concat_modalities)
         
         return concatenated_attention
@@ -137,15 +143,19 @@ class UnifiedModel(nn.Module):
         self.weighted_loss_mlp_fusion = weighted_loss_mlp_fusion
         self.mlp_object = mlp_object
         self.mlp = None
+
         if not self.vanilla_fusion:
             self.latefusionwithattention = LateFusionWithAttention(self.in_dims, self.self_attention)
         self.linear1 = nn.Linear(self.out_dims, self.intermediate_dims)
         self.linear2 = nn.Linear(self.intermediate_dims, self.num_classes)
-        if self.mlp_object:
-            self.mlp = MLP(mlp_object, self.linear1.out_features, self.weighted_loss_mlp_fusion)
-            if not self.weighted_loss_mlp_fusion:
-                self.linear2 = nn.Linear(self.intermediate_dims+self.mlp.captionnet[-2].out_features, self.num_classes)
-            #pdb.set_trace()
+
+        # self.mlp_out_dims = 0
+        # if self.LanguageModel_obj and self.VideModel_obj and self.SpectrogramModel_obj:
+        #     self.mlp_out_dims = self.LanguageModel_obj.model.classifier.out_features
+        
+        # self.mlp_out_dims = self.LanguageModel_obj.model.classifier.out_features if self.LanguageModel_obj  self.VideModel_obj.model._modules['blocks']._modules['6'].proj + self.SpectrogramModel_obj.model._modules['fc']
+        self.mlp = MLP(mlp_object, self.weighted_loss_mlp_fusion)
+
 
     def forward(self, language_model_in=None, video_classifier_in=None, audio_classifier_in=None, doc_topic_distr_in=None):
         """
@@ -165,22 +175,18 @@ class UnifiedModel(nn.Module):
                 language_model_out = language_model_out.unsqueeze(1)
                 video_classifier_out = video_classifier_out.unsqueeze(1)
                 audio_classifier_out = audio_classifier_out.unsqueeze(1)
+                caption_classifier_out = caption_classifier_out.unsqueeze(1)
             
-            x = self.latefusionwithattention(language_model_out, video_classifier_out, audio_classifier_out)
+            x = self.latefusionwithattention(language_model_out, video_classifier_out, audio_classifier_out, caption_classifier_out)
         else:
-            tensor_non_null_list = [elem for elem in [language_model_out, video_classifier_out, audio_classifier_out] if elem is not None] 
+            tensor_non_null_list = [elem for elem in [language_model_out, video_classifier_out, audio_classifier_out, caption_classifier_out] if elem is not None] 
             x = torch.cat(tensor_non_null_list, dim=-1)
 
 
         x = self.linear1(x)
         x = self.relu1(x)
-        if self.mlp_object:
-            if not self.weighted_loss_mlp_fusion:
-                x = torch.cat([x, caption_classifier_out], dim=-1) 
         x = self.linear2(x)
-
-        if self.weighted_loss_mlp_fusion:    
-            return x, caption_classifier_out
+        
         return x
 
 

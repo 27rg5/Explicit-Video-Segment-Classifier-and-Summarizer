@@ -41,7 +41,7 @@ class VideoClipDataset(Dataset):
         self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))} #Map class name to id
         
     def __getitem__(self, index):
-        video_enc, audio_enc,  spectrogram_enc, caption = 0, 0, 0, ''
+        video_enc, audio_enc,  spectrogram_enc, caption = 0, 0, 0, 0
         subclip_num, ext = self.encoded_videos[index].split('/')[-1].split('_')[-1].split('.')
 
         if self.caption_df_dict:
