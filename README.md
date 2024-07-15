@@ -60,7 +60,15 @@ python -W ignore eval.py --root_dir_path ~/cls_data_1_min --experiment_name atte
 
 `root_dir_path` - The root directory of all data
 
+`experiment_name` - Name of the experiment run, a directory exists of the same name with training logs and model weights
+
 `get_classified_list` - Optional parameter to get a csv file having video name, predicted label and actual ground truth label
+
+`eval_dataset_type` - can be one of 'train' or 'val', indicates for which dataset metrics should be computed
+
+`mlp_fusion` - if set CaptionNet embeddings will be present for late fusion along with other modalities
+
+`mlp_object_path` - path to the trained sklearn/pytorch mlp object
 
 To run the demo for the entire pipeline
 ```
