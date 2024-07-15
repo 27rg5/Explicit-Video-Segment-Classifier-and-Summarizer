@@ -293,6 +293,7 @@ if __name__=='__main__':
     parser.add_argument('--lda_type', type=str, default='tfidf', help='type of lda, put one out of tfidf or bertopic')
     parser.add_argument('--load_captions_from_exp_dir', type=str,help='existing experiment_dir having train_val captions')
     parser.add_argument('--device',type=str,default='cuda:0', help='Use one of cuda:0, cuda:1, ....')
+    parser.add_argument('--weight_decay',type=float,default=0, help='Weight decay for optimizer')
     parser.add_argument('--resume', action='store_true')
 
     args = parser.parse_args()
@@ -312,6 +313,7 @@ if __name__=='__main__':
     optimizer_name = args.optimizer_name
     print_every = args.print_every
     modalities = args.modalities.split(' ')
+    weight_decay = args.weight_decay
     
     experiment_name = args.experiment_name
     batch_size = args.batch_size
@@ -361,11 +363,11 @@ if __name__=='__main__':
     ##Model init
     LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj = None, None, None
     if 'text' in modalities:
-        LanguageModel_obj = LanguageModel(model_name = language_model_name, out_embed_dim=310)
+        LanguageModel_obj = LanguageModel(model_name = language_model_name)
     if 'video' in modalities:
-        VideoModel_obj = VideoModel(model_name = video_model_name, out_embed_dim=300)
+        VideoModel_obj = VideoModel(model_name = video_model_name)
     if 'audio' in modalities:
-        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name, out_embed_dim=300)
+        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
     
 
     intermediate_dims = 50
@@ -382,9 +384,9 @@ if __name__=='__main__':
         params_for_optim = UnifiedModel_obj.parameters()
 
     if optimizer_name in ['SGD','sgd']:
-        optimizer = SGD(params_for_optim, lr=learning_rate, momentum=0.9)
+        optimizer = SGD(params_for_optim, lr=learning_rate, momentum=0.9, weight_decay=weight_decay)
     elif optimizer_name in ['Adam','adam']:
-        optimizer = Adam(params_for_optim, lr=learning_rate)
+        optimizer = Adam(params_for_optim, lr=learning_rate, weight_decay=weight_decay)
 
     encoded_videos_path = os.path.join(root_dir,'encoded_videos')
     

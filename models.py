@@ -146,7 +146,7 @@ class UnifiedModel(nn.Module):
         self.self_attention = self_attention
         self.in_dims = in_dims 
         self.out_dims = out_dims
-        self.num_heads = 3
+        self.num_heads = 2
         self.intermediate_dims = intermediate_dims
         self.num_classes = 2
         self.LanguageModel_obj = LanguageModel_obj
