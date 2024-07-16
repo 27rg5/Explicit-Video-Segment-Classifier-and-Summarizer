@@ -3,12 +3,14 @@ import glob
 import pdb
 import csv
 import torch
+import random
 import joblib
 import pickle
 import argparse
 import pandas as pd
 from tqdm import tqdm
 import torch.nn as nn
+import numpy as np
 from models import VideoModel
 from video_utils import EncodeVideo
 from dataset import VideoClipDataset
@@ -19,18 +21,36 @@ from transformers import AutoProcessor, AutoModelForCausalLM
 from models import LanguageModel, UnifiedModel, SpectrogramModel
 from torcheval.metrics.functional import multiclass_f1_score
 
+#Set all seeds
+np.random.seed(42)
+random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed_all(42)
+
+#Set deterministic pytorch
+torch.use_deterministic_algorithms(True)
+torch.backends.cudnn.deterministic = True
+
+#For cuda version>=10.2
+if float(torch.version.cuda) >= 10.2:
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ":4096:8" #or ":16:8"
+
 def inference_on_val(videos_pkl, eval_dataset_type, classes, checkpoint_path, root_dir_path, EncodeVideo_obj, modalities=['video','audio','text'], vanilla_fusion=False, pairwise_attention_modalities=False, experiment_name=None, get_classified_list=None, language_model_name='distilbert-base-uncased', video_model_name='slowfast_r50', spectrogram_model_name='resnet18', device='cuda:0', all_captions_dict=None, mlp_object=None, weighted_loss_mlp_fusion=None, run_caption_model=False):
 
     LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj = None, None, None
     in_dims_self_attention = 0
+    out_embed_dim_lang, out_embed_dim_video, out_embed_dim_audio = 0,0,0
     if 'text' in modalities:
-        LanguageModel_obj = LanguageModel(model_name = language_model_name)
+        out_embed_dim_lang = 200 if not ablation_for_caption_modality else 310
+        LanguageModel_obj = LanguageModel(model_name = language_model_name, out_embed_dim = out_embed_dim_lang)
         in_dims_self_attention+=LanguageModel_obj.model.classifier.out_features
     if 'video' in modalities:
-        VideoModel_obj = VideoModel(model_name = video_model_name)
+        out_embed_dim_video = 200 if not ablation_for_caption_modality else 300
+        VideoModel_obj = VideoModel(model_name = video_model_name, out_embed_dim = out_embed_dim_video)
         in_dims_self_attention+=VideoModel_obj._modules['model'].blocks._modules['6'].proj.out_features
     if 'audio' in modalities:
-        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
+        out_embed_dim_audio = 200 if not ablation_for_caption_modality else 300
+        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name, out_embed_dim=out_embed_dim_audio)
         in_dims_self_attention+=SpectrogramModel_obj._modules['model'].fc.out_features
     if mlp_object:
         in_dims_self_attention+=mlp_object.hidden_layer_sizes[-1]
@@ -147,26 +167,28 @@ def inference_on_val(videos_pkl, eval_dataset_type, classes, checkpoint_path, ro
         predictions_df.to_csv(os.path.join(os.getcwd(),'runs',experiment_name,'predictions_{}.csv'.format(eval_dataset_type)), index=False)
 
 
-    print('f1-score macro:{} f1-score micro:{} f1-score weighted:{} accuracy:{}'.format(round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="macro").item()*100, 2), round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="micro").item()*100, 2), round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="weighted").item()*100, 2), round(((preds_val==targets_val).sum()/len(targets_val)).item()*100, 2)))
+    print(f'f1-score:{round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="micro").item()*100, 2)}')
     
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root_dir_path', type=str, default=os.path.join(os.path.expanduser('~'), 'cls_data'))
-    parser.add_argument('--run_caption_model', action='store_true')
-    parser.add_argument('--experiment_name', type=str, default='third_run_sgd_lr_1e-3_macro_f1_with_seed_42')
-    parser.add_argument('--get_classified_list', action='store_true')
-    parser.add_argument('--pairwise_attention_modalities', action='store_true')
-    parser.add_argument('--vanilla_fusion', action='store_true')
-    parser.add_argument('--mlp_fusion', action='store_true')
-    parser.add_argument('--weighted_loss_mlp_fusion', action='store_true')
+    parser.add_argument('--root_dir_path', type=str, default=os.path.join(os.path.expanduser('~'), 'cls_data_1_min'), help='path where videos will be stored in the form of root_folder/encoded_videos/<class>/video_dir/video_subclips/<video_file>')
+    parser.add_argument('--run_caption_model', action='store_true', help='if set runs the caption (natural language summary) generation model for the dataset in question')
+    parser.add_argument('--experiment_name', type=str, help='Name of the experiment run, a directory will be created by this name having the logs, evaluations and model weights')
+    parser.add_argument('--get_classified_list', action='store_true', help='if set will save the results for each video clip in a csv file')
+    parser.add_argument('--pairwise_attention_modalities', action='store_true', help='if set then late fusion will have cross modal attention instead of self attention')
+    parser.add_argument('--vanilla_fusion', action='store_true', help='if set late fusion will be simple concatenation')
+    parser.add_argument('--mlp_fusion', action='store_true', help='if set CaptionNet embeddings will be present for late fusion along with other modalities')
+    parser.add_argument('--weighted_loss_mlp_fusion', action='store_true', help='if set loss function will be combination of the original pipeline and mlp considered separately')
     parser.add_argument('--mlp_object_path', type=str, default='', help='path to the sklearn/pytorch mlp object')
-    parser.add_argument('--eval_dataset_type', type=str,help='train or val')
+    parser.add_argument('--eval_dataset_type', type=str, help='Specify which dataset to perform evaluation on, select one out of train or val')
+    parser.add_argument('--ablation_for_caption_modality', action='store_true', help='if set will carry out an ablation experiment removing caption modality, increasing the params for other three modalities')
     parser.add_argument('--modalities',nargs='+',default='video audio text',help='Add modality names out of video, audio, text')
 
     
     args = parser.parse_args()
     root_dir_path = args.root_dir_path
+    ablation_for_caption_modality = args.ablation_for_caption_modality
     mlp_fusion = args.mlp_fusion
     mlp_object_path = args.mlp_object_path
     weighted_loss_mlp_fusion = args.weighted_loss_mlp_fusion

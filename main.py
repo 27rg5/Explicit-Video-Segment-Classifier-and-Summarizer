@@ -280,19 +280,20 @@ if __name__=='__main__':
     parser.add_argument('--language_model_name', type=str,help='path to the fine-tuned model OR huggingface pretrained model name')
     parser.add_argument('--spectrogram_model_name', type=str,help='path to the fine-tuned model OR huggingface pretrained model name')
     parser.add_argument('--video_model_name', type=str,help='torch hub pretrained model name')
-    parser.add_argument('--weighted_cross_entropy', action='store_true', help='boolean whether to have weighted cross entropy or not') #Optional
+    parser.add_argument('--weighted_cross_entropy', action='store_true', help='if set applies weighted cross entropy') #Optional
     parser.add_argument('--experiment_name',type=str, help='Name of the experiment run, a directory will be created by this name having the logs, evaluations and model weights')
     parser.add_argument('--batch_size',type=int, help='Batch size for train and validation')
     parser.add_argument('--print_every',type=int, help='Indicates the number of batches after which running loss will be printed for every epoch')
     parser.add_argument('--modalities',nargs='+',default='video audio text',help='Add modality names out of video, audio, text')
-    parser.add_argument('--pairwise_attention_modalities', action='store_true', help='boolean if true then late fusion will be cross modal attention instead of self attention')
-    parser.add_argument('--vanilla_fusion', action='store_true', help='boolean if true late fusion will be simple concatenation')
+    parser.add_argument('--pairwise_attention_modalities', action='store_true', help='if set then late fusion will have cross modal attention instead of self attention')
+    parser.add_argument('--vanilla_fusion', action='store_true', help='if set late fusion will be simple concatenation')
     parser.add_argument('--mlp_fusion', action='store_true', help='if set CaptionNet embeddings will be present for late fusion along with other modalities')
     parser.add_argument('--weighted_loss_mlp_fusion', action='store_true', help='if set loss function will be combination of the original pipeline and mlp considered separately')
     parser.add_argument('--mlp_object_path', type=str, default='', help='path to the trained sklearn/pytorch mlp object')
     parser.add_argument('--lda_type', type=str, default='tfidf', help='type of lda, put one out of tfidf or bertopic')
     parser.add_argument('--load_captions_from_exp_dir', type=str,help='existing experiment_dir having train_val captions')
     parser.add_argument('--device',type=str,default='cuda:0', help='Use one of cuda:0, cuda:1, ....')
+    parser.add_argument('--ablation_for_caption_modality', action='store_true', help='if set will carry out an ablation experiment removing caption modality, increasing the params for other three modalities')
     parser.add_argument('--resume', action='store_true', help='if set resume training from latest model checkpoint')
 
     args = parser.parse_args()
@@ -312,6 +313,7 @@ if __name__=='__main__':
     optimizer_name = args.optimizer_name
     print_every = args.print_every
     modalities = args.modalities.split(' ')
+    ablation_for_caption_modality = args.ablation_for_caption_modality
     
     experiment_name = args.experiment_name
     batch_size = args.batch_size
@@ -343,12 +345,22 @@ if __name__=='__main__':
 
     ##Model init
     LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj = None, None, None
+    in_dims_self_attention = 0
+    out_embed_dim_lang, out_embed_dim_video, out_embed_dim_audio = 0,0,0
     if 'text' in modalities:
-        LanguageModel_obj = LanguageModel(model_name = language_model_name)
+        out_embed_dim_lang = 200 if not ablation_for_caption_modality else 310
+        LanguageModel_obj = LanguageModel(model_name = language_model_name, out_embed_dim = out_embed_dim_lang)
+        in_dims_self_attention+=LanguageModel_obj.model.classifier.out_features
     if 'video' in modalities:
-        VideoModel_obj = VideoModel(model_name = video_model_name)
+        out_embed_dim_video = 200 if not ablation_for_caption_modality else 300
+        VideoModel_obj = VideoModel(model_name = video_model_name, out_embed_dim = out_embed_dim_video)
+        in_dims_self_attention+=VideoModel_obj._modules['model'].blocks._modules['6'].proj.out_features
     if 'audio' in modalities:
-        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name)
+        out_embed_dim_audio = 200 if not ablation_for_caption_modality else 300
+        SpectrogramModel_obj = SpectrogramModel(model_name = spectrogram_model_name, out_embed_dim=out_embed_dim_audio)
+        in_dims_self_attention+=SpectrogramModel_obj._modules['model'].fc.out_features
+    if mlp_object:
+        in_dims_self_attention+=mlp_object.hidden_layer_sizes[-1]
     
     if pairwise_attention_modalities:
         #Pairwise attention
@@ -365,8 +377,8 @@ if __name__=='__main__':
             out_dims = 600
     else:
         #Concatenate and then self-attention
-        in_dims = 910
-        out_dims = 910    
+        in_dims = in_dims_self_attention
+        out_dims = in_dims
 
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities
