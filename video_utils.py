@@ -85,10 +85,3 @@ class EncodeVideo:
             inputs = video_data["video"]
             inputs = [i[None, ...] for i in inputs]
             return inputs
-
-if __name__=='__main__':
-    videos = glob.glob('/home/shaunaks/cls_data/processed_data/*/*')
-    enc_vid = EncodeVideo()
-    for vid in tqdm(videos):
-        enc_v  = enc_vid.get_output(vid)
-        #del enc_v
