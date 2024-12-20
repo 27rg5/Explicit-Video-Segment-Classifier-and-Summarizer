@@ -104,8 +104,6 @@ tifffile==2023.4.12
 tiktoken==0.3.1
 tokenizers==0.13.3
 torch==2.0.0
-torchaudio==2.0.1+cu118
-torchdim @ git+https://github.com/facebookresearch/torchdim@b2a058ab5ada860f63fe48eadc98e7373dbdd9ec
 torcheval==0.0.6
 torchtnt==0.0.7
 torchvision==0.15.1

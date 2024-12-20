@@ -1,5 +1,5 @@
 from transformers import AutoTokenizer
-import whisper 
+#import whisper 
 
 class GetTextFromAudio: 
     def __init__(self) -> None:

@@ -2,16 +2,19 @@
 
 import os
 import glob
+import pdb
 import torch
 
 from tqdm import tqdm
 from typing import Dict
 import json
 import urllib
-from torchvision.transforms import Compose, Lambda
+from torchvision.transforms import Compose, Lambda, ColorJitter,RandomGrayscale
 from torchvision.transforms._transforms_video import (
     CenterCropVideo,
     NormalizeVideo,
+    RandomCropVideo,
+    RandomHorizontalFlipVideo,    
 )
 from pytorchvideo.data.encoded_video import EncodedVideo
 from pytorchvideo.transforms import (
@@ -44,33 +47,54 @@ class PackPathway(torch.nn.Module):
             return frame_list
         
 class EncodeVideo:
-    def __init__(self) -> None:
+    def __init__(self, mode='train') -> None:
         
-        self.side_size = 256
+        self.side_size = 224
         self.mean = [0.45, 0.45, 0.45]
         self.std = [0.225, 0.225, 0.225]
-        self.crop_size = 256
+        self.crop_size = 224
+        self.max_short_side_size = 320
         self.num_frames = 32
         self.sampling_rate = 2
         self.frames_per_second = 30
         self.slowfast_alpha = 4
         self.num_clips = 10
         self.num_crops = 3
+        self.mode = mode
 
-        self.transform =  ApplyTransformToKey(
-        key="video",
-        transform=Compose(
-            [
-                UniformTemporalSubsample(self.num_frames),
-                Lambda(lambda x: x/255.0),
-                NormalizeVideo(self.mean, self.std),
-                ShortSideScale(
-                    size=self.side_size
-                ),
-                CenterCropVideo(self.crop_size),
-                PackPathway(self.slowfast_alpha)
-            ]),)
-        
+        if self.mode=='train':
+            self.transform =  ApplyTransformToKey(
+            key="video",
+            transform=Compose(
+                [
+                    UniformTemporalSubsample(self.num_frames),
+                    Lambda(lambda x: x/255.0),
+                    # Lambda(lambda x: x.permute(1,0,2,3)),
+                    # #Augmentations
+                    # ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
+                    # RandomGrayscale(p=0.2),
+                    # Lambda(lambda x: x.permute(1,0,2,3)),
+                    NormalizeVideo(self.mean, self.std),
+                    RandomShortSideScale(min_size=self.side_size, max_size=self.max_short_side_size),
+                    RandomCropVideo(self.crop_size),
+                    RandomHorizontalFlipVideo(p=0.5),
+                    PackPathway(self.slowfast_alpha)
+                ]),)
+        else:
+            self.transform =  ApplyTransformToKey(
+            key="video",
+            transform=Compose(
+                [
+                    UniformTemporalSubsample(self.num_frames),
+                    Lambda(lambda x: x/255.0),
+                    NormalizeVideo(self.mean, self.std),
+                    ShortSideScale(
+                        size=self.side_size
+                    ),
+                    CenterCropVideo(self.crop_size),
+                    PackPathway(self.slowfast_alpha)
+                ]),)
+
     
         # Select the duration of the clip to load by specifying the start and end duration
         # The start_sec should correspond to where the action occurs in the video

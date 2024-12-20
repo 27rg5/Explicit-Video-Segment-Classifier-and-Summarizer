@@ -15,12 +15,6 @@ from audio_utils import GetSpectrogramFromAudio
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 
 
-def makedir(dir_):
-    if not os.path.exists(dir_):
-        os.makedirs(dir_)
-        return True
-    return False
-
 def convert_avi_to_mp4(avi_file_path, output_name):
      os.popen("ffmpeg -i '{input}' -ac 2 -b:v 2000k -c:a aac -c:v libx264 -b:a 160k -vprofile high -bf 0 -strict experimental -f mp4 '{output}.mp4'".format(input = avi_file_path, output = output_name))
      return True

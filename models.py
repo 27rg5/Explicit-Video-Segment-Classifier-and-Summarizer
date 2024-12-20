@@ -21,7 +21,11 @@ class MLP(nn.Module):
             self.captionnet.append(nn.ReLU())
     
     def forward(self, x):
+        #Breakpoint
+        #pdb.set_trace()
+        #print('Input of MLP ')
         x = self.captionnet(x)
+        #print('Output of MLP ')
         return x
 
 class VideoModel(nn.Module):
@@ -33,12 +37,14 @@ class VideoModel(nn.Module):
         self.demo = demo
         #self.t = T.Resize()
 
-    def forward(self, x):
-        
-        if not self.demo:
-            x = [elem.squeeze(0) for elem in x]
-        
+    def forward(self, x):   
+        # if not self.demo:
+        #     x = [elem.squeeze(0) for elem in x]             
+        #Breakpoint
+        #pdb.set_trace()
+        #print('Input of Slowfast')
         pred = self.model(x)
+        #print('Output of Slowfast')
         return pred
 
 class SpectrogramModel(nn.Module):
@@ -49,9 +55,8 @@ class SpectrogramModel(nn.Module):
         self.demo = demo
 
     def forward(self, x):
-        
-        if self.demo:
-            x = x.unsqueeze(0)
+        # if self.demo:
+        #     x = x.unsqueeze(0)
         return self.model(x)
 
 
@@ -75,23 +80,25 @@ class LanguageModel(nn.Module):
 
             @param tokenized_text: Text tokenized using BERT
         """
-        if not self.demo:
-            tokenized_text['input_ids'] = tokenized_text['input_ids'].squeeze(0)
-            tokenized_text['attention_mask'] = tokenized_text['attention_mask'].squeeze(0)
-        #print('\n', tokenized_text['input_ids'].size())
-        
-        tokenized_text['input_ids'] = tokenized_text['input_ids'][:, :512]
-        tokenized_text['attention_mask'] = tokenized_text['attention_mask'][:, :512]
+        # if not self.demo:
+        #     tokenized_text['input_ids'] = tokenized_text['input_ids'].squeeze(0)
+        #     tokenized_text['attention_mask'] = tokenized_text['attention_mask'].squeeze(0)        
+
+        tokenized_text['input_ids'] = tokenized_text['input_ids'][..., :512]
+        tokenized_text['attention_mask'] = tokenized_text['attention_mask'][..., :512]
 
         x = self.model(**tokenized_text).logits
         return x
 
 class LateFusionWithAttention(nn.Module):
-    def __init__(self, hidden_dim, self_attention=False, num_heads=1):
+    def __init__(self, hidden_dim, modality_out_dim_mapping, self_attention=False, num_heads=1):
         super(LateFusionWithAttention, self).__init__()
         self.self_attention = self_attention
-        self.hidden_dim = hidden_dim 
+        self.hidden_dim = hidden_dim
+        self.common_projection_dim = hidden_dim
         self.multiheadattention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, batch_first=True)
+        self.modality_out_dim_mapping = modality_out_dim_mapping #{'video':tensor, 'audio':tensor}
+        self.modality_projection_layers = nn.ModuleDict({modality:nn.Linear(dim, self.hidden_dim) for modality, dim in self.modality_out_dim_mapping.items()})
 
     def forward(self, tensor_non_null_dict):
         
@@ -125,13 +132,21 @@ class LateFusionWithAttention(nn.Module):
             concatenated_attention = torch.cat(concatenate_list, dim=-1).squeeze(1)
         else:
             # Concatenate and then self-attention
-            concat_modalities = torch.cat(list(tensor_non_null_dict.values()), dim=-1)
+            #Breakpoint
+            #pdb.set_trace()
+            #print('Input of Attentionblock')
+            modality_projections = dict()
+            for modality, modality_out in tensor_non_null_dict.items():
+                modality_projections[modality] = self.modality_projection_layers[modality](modality_out).unsqueeze(1)   #{'video':out_proj_tensor, 'audio':out_proj_tensor}
+            
+            concat_modalities = torch.cat(list(modality_projections.values()), dim=1) #(N, M, out_dim) N:batch size M:num_modalitites out_dim:attention_embed_dim
             concatenated_attention,_ = self.multiheadattention(concat_modalities, concat_modalities, concat_modalities)
+            #print('Output of Attentionblock')
         
         return concatenated_attention
 
 class UnifiedModel(nn.Module):
-    def __init__(self, out_dims, intermediate_dims, in_dims, vanilla_fusion=False, self_attention=False, LanguageModel_obj=None, VideModel_obj=None, SpectrogramModel_obj=None, mlp_object=None, weighted_loss_mlp_fusion=False):
+    def __init__(self, out_dims, intermediate_dims, in_dims, modality_out_dim_mapping, dropout=0, vanilla_fusion=False, self_attention=False, LanguageModel_obj=None, VideModel_obj=None, SpectrogramModel_obj=None, mlp_object=None, weighted_loss_mlp_fusion=False):
         """
             Description: A unified model that takes language model output , video_classifier output and audio_classifier output. Here audio_classifier output is spectrogram
 
@@ -145,7 +160,8 @@ class UnifiedModel(nn.Module):
         super(UnifiedModel, self).__init__()
         self.self_attention = self_attention
         self.in_dims = in_dims 
-        self.out_dims = out_dims
+        modality_out_dim_mapping_len = len(modality_out_dim_mapping)
+        self.out_dims = modality_out_dim_mapping_len*out_dims if modality_out_dim_mapping_len>0 else out_dims
         self.intermediate_dims = intermediate_dims
         self.num_classes = 2
         self.LanguageModel_obj = LanguageModel_obj
@@ -155,12 +171,14 @@ class UnifiedModel(nn.Module):
         self.vanilla_fusion = vanilla_fusion 
         self.weighted_loss_mlp_fusion = weighted_loss_mlp_fusion
         self.mlp_object = mlp_object
+        self.modality_out_dim_mapping = modality_out_dim_mapping
         self.mlp = None
 
         if not self.vanilla_fusion:
-            self.latefusionwithattention = LateFusionWithAttention(self.in_dims, self.self_attention)
+            self.latefusionwithattention = LateFusionWithAttention(self.in_dims, self.modality_out_dim_mapping, self.self_attention)
         self.linear1 = nn.Linear(self.out_dims, self.intermediate_dims)
         self.linear2 = nn.Linear(self.intermediate_dims, self.num_classes)
+        self.dropout1 = nn.Dropout(p=dropout)
 
         # self.mlp_out_dims = 0
         # if self.LanguageModel_obj and self.VideModel_obj and self.SpectrogramModel_obj:
@@ -184,7 +202,7 @@ class UnifiedModel(nn.Module):
         video_classifier_out = self.VideModel_obj(video_classifier_in) if self.VideModel_obj else None
         audio_classifier_out = self.SpectrogramModel_obj(audio_classifier_in) if self.SpectrogramModel_obj else None
         caption_classifier_out = self.mlp(doc_topic_distr_in) if self.mlp else None
-        tensor_list = [('language', language_model_out), ('video', video_classifier_out), ('audio', audio_classifier_out), ('caption', caption_classifier_out)]
+        tensor_list = [('text', language_model_out), ('video', video_classifier_out), ('audio', audio_classifier_out), ('caption', caption_classifier_out)]
         tensor_non_null_dict = dict()
         for key, value in tensor_list:
             if value is not None:
@@ -195,15 +213,21 @@ class UnifiedModel(nn.Module):
                 for key, _ in tensor_non_null_dict.items():
                     tensor_non_null_dict[key] = tensor_non_null_dict[key].unsqueeze(1)
             
+            #Breakpoint
+            #pdb.set_trace()
             x = self.latefusionwithattention(tensor_non_null_dict)
         else:
+            #Breakpoint
+            #pdb.set_trace()
             x = torch.cat(list(tensor_non_null_dict.values()), dim=-1)
 
-
+        #Breakpoint
+        #pdb.set_trace()
+        x = x.flatten(start_dim=1)
         x = self.linear1(x)
         x = self.relu1(x)
+        x = self.dropout1(x)
         x = self.linear2(x)
-        
         return x
 
 
