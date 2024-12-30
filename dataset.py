@@ -84,7 +84,7 @@ class VideoClipDataset(Dataset):
             @param device: "cuda" or "cpu"
         """
     
-        self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.device, self.modalities, self.caption_df_dict = dataset_dict.values()
+        self.root_dir_path, self.encoded_videos, self.EncodeVideo_obj, self.modalities, self.caption_df_dict = dataset_dict.values()
         self.classes = {elem.split('/')[-1]:i for i, elem in enumerate(sorted(glob.glob(os.path.join(self.root_dir_path,'encoded_videos/*'))))} #Map class name to id
 
         # Create self.labels corresponding to each video in self.encoded_videos
@@ -125,16 +125,17 @@ class VideoClipDataset(Dataset):
 
     def __len__(self):
         return len(self.encoded_videos)
+        
 
     
 if __name__=='__main__':
-    exp_dir_with_captions = 'runs/attention_fusion_default_networks_self_attention_21epochs_caption_modality'
+    captions_data_names_pkl_path = 'runs/attention_fusion_default_networks_self_attention_21epochs_caption_modality'
     root_dir_path = os.path.join(os.path.expanduser('~'), 'cls_data_1_min')
-    encoded_videos = pickle.load(open(os.path.join(exp_dir_with_captions,'val_encoded_video.pkl'),'rb'))
+    encoded_videos = pickle.load(open(os.path.join(captions_data_names_pkl_path,'val_encoded_video.pkl'),'rb'))
     
     device = torch.device('cpu')
     modalities = ['text','video','audio']
-    all_captions_dict = pickle.load(open(os.path.join(exp_dir_with_captions,'all_captions.pkl'),'rb'))
+    all_captions_dict = pickle.load(open(os.path.join(captions_data_names_pkl_path,'all_captions.pkl'),'rb'))
     EncodeVideo_obj = EncodeVideo()
     dataset_dict = {
         'root_dir':root_dir_path,

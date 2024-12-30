@@ -11,6 +11,9 @@ import glob
 import argparse
 import transformers
 import numpy as np
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import WeightedRandomSampler
 from dataset import collate_fn
 #from data_utils import *
@@ -36,8 +39,18 @@ from torcheval.metrics.functional import multiclass_f1_score
 import warnings
 warnings.filterwarnings("ignore")
 
-#torch.backends.cudnn.benchmark = False
-torch.backends.cudnn.benchmark_limit = 0
+def ddp_setup():
+    # Initialize the process group
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+#    init_file = "/dev/shm/torch_distributed_sharedfile"
+
+    # if os.path.exists(init_file):
+    #     os.remove(init_file)
+    dist.init_process_group(backend="nccl",rank = local_rank, world_size = world_size)#, init_method='file://'+init_file)
+    torch.cuda.set_device(local_rank)
+    return local_rank, world_size
+
 def generate_caption_dict(all_video_paths, summarizer_model, video_processor, num_train_videos):
     caption_dict = dict()
     for i, video_path in enumerate(all_video_paths):
@@ -115,26 +128,23 @@ def get_train_val_split(train_videos_pkl, val_videos_pkl):
 
 
 def train_val(**train_val_arg_dict):
-    unifiedmodel_obj, optimizer, train_dataloader, val_dataloader, test_dataloader, n_epochs, print_every, experiment_dir, loss_, bce_with_logits_loss, device, use_lr_scheduler, trainable_weight2 = train_val_arg_dict.values()
+    unifiedmodel_obj, optimizer, train_dataloader, val_dataloader,test_dataloader, n_epochs, print_every, experiment_dir, loss_, bce_with_logits_loss, use_lr_scheduler, trainable_weight2 = train_val_arg_dict.values()
     prev_time = time.time()
-    writer = SummaryWriter(experiment_dir)
+
+
+    writer = None
+    if verbose:
+        writer = SummaryWriter(experiment_dir)
     train_losses = list()
     val_losses = list()
-    test_losses = list()
     best_loss = float('inf')
     best_f1_score = float('-inf')
     softmax = nn.Softmax(dim=-1)
-    n_iters_train = 0
-    n_iters_val = 0
-    n_iters_test = 0
     start_epoch = 0
     scheduler = None
-    patience = 7 #Defines the number of epochs to wait for improvement before stopping early
-    patience_counter = 0 #Maintains the count of epochs since last improvement
-
     if resume:
         checkpoint = torch.load(os.path.join(experiment_dir, 'best_checkpoint.pth'))
-        unifiedmodel_obj.module.load_state_dict(checkpoint['model_state_dict'])
+        unifiedmodel_obj.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         best_loss = checkpoint['best_loss']
         start_epoch = checkpoint['start_epoch']
@@ -142,8 +152,8 @@ def train_val(**train_val_arg_dict):
         random.setstate(checkpoint['random_state_dict']['python_random_state'])
         np.random.set_state(checkpoint['random_state_dict']['numpy_random_state'])
         torch.set_rng_state(checkpoint['random_state_dict']['torch_random_state'])
-        if device.type=='cuda':
-            torch.cuda.set_rng_state(checkpoint['random_state_dict']['cuda_random_state'])
+        # if device.type=='cuda':
+        #     torch.cuda.set_rng_state(checkpoint['random_state_dict']['cuda_random_state'])
         print('Resuming training from epoch:{}'.format(start_epoch))
 
     
@@ -153,32 +163,58 @@ def train_val(**train_val_arg_dict):
 
     for epoch in range(start_epoch, n_epochs):
         #train
-        print('\n\n Epoch: {}'.format(epoch+1))
-        print('\n Train')
-        epoch_loss_train=0
-        correct_train_preds = 0
+        if verbose:
+            print('\n\n Epoch: {}'.format(epoch+1))
+            print('\n Train')
+
+        epoch_loss_train = 0
+
         unifiedmodel_obj.train()
+
+        running_loss_train = 0
+        running_correct_train_preds = 0
+        running_samples_train = 0
+
         preds_train = list()
         targets_train = list()
+
+        epoch_loss_val = 0
+
+        running_loss_val = 0
+        running_correct_val_preds = 0
+        running_samples_val = 0
+        
         preds_val = list()
         targets_val = list()
+
+        epoch_loss_test = 0
+
+        running_loss_test = 0
+        running_correct_test_preds = 0
+        running_samples_test = 0
+        
         preds_test = list()
         targets_test = list()
 
 
+        train_sampler.set_epoch(epoch)
+        torch.cuda.empty_cache()
         for i, modality_inputs in enumerate(train_dataloader):
+            
             _, transformed_video, processed_speech, spectrogram, caption, target = modality_inputs
             #Breakpoint
             #pdb.set_trace()
+            
             if isinstance(transformed_video, list):
-                transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
+                transformed_video = [elem.to(local_rank, non_blocking=True) for elem in transformed_video]
+                
             if not isinstance (processed_speech, torch.Tensor):
-                processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
+                processed_speech = {key:processed_speech[key].to(local_rank, non_blocking=True) for key in processed_speech.keys()}
             if spectrogram.ndim>1:#torch.equal(spectrogram, torch.zeros_like(spectrogram)):
-                spectrogram = spectrogram.to(device, non_blocking=True)
+                spectrogram = spectrogram.to(local_rank, non_blocking=True)
             if caption.ndim>1:#torch.equal(caption, torch.zeros_like(caption)):
-                caption = caption.to(device, non_blocking=True)
-            target = target.to(device, non_blocking=True)
+                caption = caption.to(local_rank, non_blocking=True)
+            target = target.to(local_rank, non_blocking=True)
 
             optimizer.zero_grad()
             predictions_tuple = unifiedmodel_obj(processed_speech, transformed_video, spectrogram, caption)
@@ -195,58 +231,84 @@ def train_val(**train_val_arg_dict):
 
             batch_loss.backward()
             optimizer.step()
-            predictions = predictions.detach()
-            target = target.detach()
+
+            local_loss = torch.tensor(batch_loss.item(), device=predictions.device)
+            dist.all_reduce(local_loss, op=dist.ReduceOp.SUM)
+            global_batch_loss = local_loss.item()/world_size
+
             pred_softmax = softmax(predictions)
             pred_softmax = torch.argmax(pred_softmax, dim=-1)
-            num_correct_preds = (pred_softmax==target).sum()
-            correct_train_preds+=num_correct_preds
-            epoch_loss_train+=batch_loss.cpu().detach().item()
-            n_iters_train+=1
-            preds_train.extend(pred_softmax.cpu().tolist())
-            targets_train.extend(target.cpu().tolist())
+
+            correct_train_preds = (pred_softmax==target).sum()
+            dist.all_reduce(correct_train_preds, op=dist.ReduceOp.SUM)
+
+            total_local = torch.tensor(target.size(0), device=target.device, dtype=torch.long)
+            dist.all_reduce(total_local, op=dist.ReduceOp.SUM)
+            global_accuracy_train = correct_train_preds.item()/total_local.item()
+
+            running_loss_train+=global_batch_loss
+            running_correct_train_preds+=correct_train_preds.item()
+            running_samples_train+=total_local.item()
+
+            preds_train.append(pred_softmax.cpu())
+            targets_train.append(target.cpu())
+
             scheduler.step()
             
             # preds_train.append(pred_softmax.cpu())
             # targets_train.append(target.cpu())
             
 
-            if i % print_every == 0:
+            if i % print_every == 0 and verbose:
                 curr_time = time.time()
                 minutes = int(curr_time - prev_time)//60
                 seconds = ((curr_time - prev_time) - int(curr_time - prev_time))*60
-                print('Batch:{}, Train epoch loss average:{} time delta in minutes:{} seconds:{}'.format(i+1, epoch_loss_train/(i+1), minutes, seconds))
+                print('Batch:{}, Train epoch loss average:{} time delta in minutes:{} seconds:{}'.format(i+1, running_loss_train/(i+1), minutes, seconds))
                 prev_time = time.time()
 
 
-        writer.add_scalar("Loss/train", epoch_loss_train/len(train_dataloader), epoch+1)
-        preds_train = torch.tensor(preds_train)
-        targets_train = torch.tensor(targets_train)
-        f1_score_train = multiclass_f1_score(preds_train, targets_train, num_classes=2, average="micro").item()
-        writer.add_scalar("F1/train", f1_score_train, epoch+1)
-        average_train_loss_per_epoch = epoch_loss_train/len(train_dataloader)
-        print('For epoch:{} the average train loss: {} and the accuracy: {} and F1-micro score: {}'.format(epoch+1, average_train_loss_per_epoch, correct_train_preds/train_dataloader.dataset.__len__(), f1_score_train))
-        train_losses.append(average_train_loss_per_epoch)
-    
+        average_train_loss_per_epoch = running_loss_train/len(train_dataloader)
+        epoch_accuracy_train = running_correct_train_preds/running_samples_train
 
+        local_preds_train = torch.cat(preds_train, dim=0).to(predictions.device)
+        local_targets_train = torch.cat(targets_train, dim=0).to(predictions.device)
+
+        gathered_preds_train = [torch.zeros_like(local_preds_train) for _ in range(world_size)]
+        gathered_targets_train = [torch.zeros_like(local_targets_train) for _ in range(world_size)]
+
+        dist.all_gather(gathered_preds_train, local_preds_train)
+        dist.all_gather(gathered_targets_train, local_targets_train)
+
+        if verbose:
+            global_preds_train = torch.cat(gathered_preds_train, dim=0)
+            global_targets_train = torch.cat(gathered_targets_train, dim=0)
+            epoch_f1_train = multiclass_f1_score(global_preds_train, global_targets_train, num_classes=2, average="micro").item()
+            print(f"\n[Train][Epoch {epoch+1}] "
+                            f"Avg Loss: {average_train_loss_per_epoch:.4f}, "
+                            f"Acc: {epoch_accuracy_train:.4f}, "
+                            f"F1: {epoch_f1_train:.4f}")
+        if verbose:
+                writer.add_scalar("Loss/train", average_train_loss_per_epoch, epoch+1)
+                writer.add_scalar("F1/train", epoch_f1_train, epoch+1)                                
         #Val
-        print('\n Val')
+        if verbose:
+            print('\n Val')
         unifiedmodel_obj.eval()
-        epoch_loss_val=0
-        correct_val_preds = 0
+
+        torch.cuda.empty_cache()
         for i, modality_inputs in enumerate(val_dataloader):
             with torch.no_grad():
                 _, transformed_video, processed_speech,spectrogram, caption, target = modality_inputs
                 #Breakpoint
                 if isinstance(transformed_video, list):
-                    transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
+                    transformed_video = [elem.to(local_rank, non_blocking=True) for elem in transformed_video]
                 if not isinstance (processed_speech, torch.Tensor):
-                    processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
+                    processed_speech = {key:processed_speech[key].to(local_rank, non_blocking=True) for key in processed_speech.keys()}
                 if spectrogram.ndim>1:#torch.equal(spectrogram, torch.zeros_like(spectrogram)):
-                    spectrogram = spectrogram.to(device, non_blocking=True)
+                    spectrogram = spectrogram.to(local_rank, non_blocking=True)
                 if caption.ndim>1:#torch.equal(caption, torch.zeros_like(caption)):
-                    caption = caption.to(device, non_blocking=True)
-                target = target.to(device, non_blocking=True)
+                    caption = caption.to(local_rank, non_blocking=True)
+                target = target.to(local_rank, non_blocking=True)
 
                 predictions_tuple = unifiedmodel_obj(processed_speech, transformed_video, spectrogram, caption)
                 
@@ -260,77 +322,106 @@ def train_val(**train_val_arg_dict):
                     batch_loss = loss_(predictions, target)
                     
 
+                local_loss = torch.tensor(batch_loss.item(), device=predictions.device)
+                dist.all_reduce(local_loss, op=dist.ReduceOp.SUM)
+                global_batch_loss = local_loss.item()/world_size
+
                 pred_softmax = softmax(predictions)
                 pred_softmax = torch.argmax(pred_softmax, dim=-1)
-                num_correct_preds = (pred_softmax==target).sum()
-                correct_val_preds+=num_correct_preds
-                epoch_loss_val+=batch_loss.cpu().detach().item()
-                n_iters_val+=1
-                preds_val.extend(pred_softmax.cpu().tolist())
-                targets_val.extend(target.cpu().tolist())
+
+                correct_val_preds = (pred_softmax==target).sum()
+                dist.all_reduce(correct_val_preds, op=dist.ReduceOp.SUM)
+
+                total_local = torch.tensor(target.size(0), device=target.device, dtype=torch.long)
+                dist.all_reduce(total_local, op=dist.ReduceOp.SUM)
+                global_accuracy_val = correct_val_preds.item()/total_local.item()
+
+                running_loss_val+=global_batch_loss
+                running_correct_val_preds+=correct_val_preds.item()
+                running_samples_val+=total_local.item()
+
+                preds_val.append(pred_softmax.cpu())
+                targets_val.append(target.cpu())
+
                 
+                # preds_train.append(pred_softmax.cpu())
+                # targets_train.append(target.cpu())
                 
 
-            if i % print_every == 0:
-                print('Batch:{}, Val epoch loss average:{}'.format(i+1, epoch_loss_val/(i+1)))
+                if i % print_every == 0 and verbose:
+                    curr_time = time.time()
+                    minutes = int(curr_time - prev_time)//60
+                    seconds = ((curr_time - prev_time) - int(curr_time - prev_time))*60
+                    print('Batch:{}, Val epoch loss average:{} time delta in minutes:{} seconds:{}'.format(i+1, running_loss_val/(i+1), minutes, seconds))
+                    prev_time = time.time()
 
-        writer.add_scalar("Loss/val", epoch_loss_val/len(val_dataloader), epoch+1)
-        preds_val = torch.tensor(preds_val)
-        targets_val = torch.tensor(targets_val)
-        f1_score_val = multiclass_f1_score(preds_val, targets_val, num_classes=2, average="micro").item()
-        writer.add_scalar("F1/val", f1_score_val, epoch+1)
-        average_val_loss_per_epoch = epoch_loss_val/len(val_dataloader)
-        # if use_lr_scheduler:
-        #     scheduler.step(average_val_loss_per_epoch)
+        average_val_loss_per_epoch = running_loss_val/len(val_dataloader)
+        epoch_accuracy_val = running_correct_val_preds/running_samples_val
 
-        print('For epoch:{} the average val loss: {} and the accuracy:{} and F1-micro score: {}'.format(epoch+1, average_val_loss_per_epoch, correct_val_preds/val_dataloader.dataset.__len__(),  f1_score_val))
-        val_losses.append(average_val_loss_per_epoch)
+        local_preds_val = torch.cat(preds_val, dim=0).to(predictions.device)
+        local_targets_val = torch.cat(targets_val, dim=0).to(predictions.device)
+
+        gathered_preds_val = [torch.zeros_like(local_preds_val) for _ in range(world_size)]
+        gathered_targets_val = [torch.zeros_like(local_targets_val) for _ in range(world_size)]
+
+        dist.all_gather(gathered_preds_val, local_preds_val)
+        dist.all_gather(gathered_targets_val, local_targets_val)
+
+        if verbose:
+            global_preds_val = torch.cat(gathered_preds_val, dim=0)
+            global_targets_val = torch.cat(gathered_targets_val, dim=0)
+            epoch_f1_val = multiclass_f1_score(global_preds_val, global_targets_val, num_classes=2, average="micro").item()
+            print(f"\n[Val][Epoch {epoch+1}] "
+                            f"Avg Loss: {average_val_loss_per_epoch:.4f}, "
+                            f"Acc: {epoch_accuracy_val:.4f}, "
+                            f"F1: {epoch_f1_val:.4f}")
+        if verbose:
+                writer.add_scalar("Loss/val", average_val_loss_per_epoch, epoch+1)
+                writer.add_scalar("F1/val", epoch_f1_val, epoch+1)                                
 
         #Save model which has best validation loss
-        if average_val_loss_per_epoch < best_loss:
-            patience_counter = 0
-            random_state_dict = {
+        if average_val_loss_per_epoch < best_loss and verbose:
+                random_state_dict = {
                 'python_random_state':random.getstate(),
                 'numpy_random_state':np.random.get_state(),
                 'torch_random_state':torch.get_rng_state(),
-                'cuda_random_state':torch.cuda.get_rng_state() if device.type=='cuda' else None,
-            }
-            best_loss = average_val_loss_per_epoch
-            checkpoint_dict = {
-                'start_epoch':epoch+1,
-                'optimizer_state_dict':optimizer.state_dict(),
-#                'model_state_dict':unifiedmodel_obj.module.state_dict(),
-                'model_state_dict':unifiedmodel_obj.state_dict(),
-                'best_loss':best_loss,
-                'random_state_dict':random_state_dict,
-                'scheduler_state_dict':scheduler.state_dict() if scheduler else None
-            }
-            torch.save(checkpoint_dict, os.path.join(experiment_dir, 'best_checkpoint.pth'))
-        else:
-            patience_counter+=1
-        
+                'cuda_random_state':torch.cuda.get_rng_state_all()
+                }
+
+                best_loss = average_val_loss_per_epoch
+                checkpoint_dict = {
+                    'start_epoch':epoch+1,
+                    'optimizer_state_dict':optimizer.state_dict(),
+                    'model_state_dict':unifiedmodel_obj.module.state_dict(),
+                    'best_loss':best_loss,
+                    'random_state_dict':random_state_dict,
+                    'scheduler_state_dict':scheduler.state_dict() if scheduler else None
+                }
+                torch.save(checkpoint_dict, os.path.join(experiment_dir, 'best_checkpoint.pth'))
+                #dist.barrier()
         #Save model which has best validation f1-score
         # if f1_score_val > best_f1_score:
         #     best_f1_score = f1_score_val
         #     torch.save(unifiedmodel_obj.state_dict(), os.path.join(experiment_dir, 'best_checkpoint.pth'))
 
-        print('\n Test')
+        if verbose:
+            print('\n Test')
         unifiedmodel_obj.eval()
-        epoch_loss_test=0
-        correct_test_preds = 0
+
+        torch.cuda.empty_cache()
         for i, modality_inputs in enumerate(test_dataloader):
             with torch.no_grad():
                 _, transformed_video, processed_speech,spectrogram, caption, target = modality_inputs
                 #Breakpoint
                 if isinstance(transformed_video, list):
-                    transformed_video = [elem.to(device, non_blocking=True) for elem in transformed_video]
+                    transformed_video = [elem.to(local_rank, non_blocking=True) for elem in transformed_video]
                 if not isinstance (processed_speech, torch.Tensor):
-                    processed_speech = {key:processed_speech[key].to(device, non_blocking=True) for key in processed_speech.keys()}
+                    processed_speech = {key:processed_speech[key].to(local_rank, non_blocking=True) for key in processed_speech.keys()}
                 if spectrogram.ndim>1:#torch.equal(spectrogram, torch.zeros_like(spectrogram)):
-                    spectrogram = spectrogram.to(device, non_blocking=True)
+                    spectrogram = spectrogram.to(local_rank, non_blocking=True)
                 if caption.ndim>1:#torch.equal(caption, torch.zeros_like(caption)):
-                    caption = caption.to(device, non_blocking=True)
-                target = target.to(device, non_blocking=True)
+                    caption = caption.to(local_rank, non_blocking=True)
+                target = target.to(local_rank, non_blocking=True)
 
                 predictions_tuple = unifiedmodel_obj(processed_speech, transformed_video, spectrogram, caption)
                 
@@ -344,38 +435,67 @@ def train_val(**train_val_arg_dict):
                     batch_loss = loss_(predictions, target)
                     
 
+                local_loss = torch.tensor(batch_loss.item(), device=predictions.device)
+                dist.all_reduce(local_loss, op=dist.ReduceOp.SUM)
+                global_batch_loss = local_loss.item()/world_size
+
                 pred_softmax = softmax(predictions)
                 pred_softmax = torch.argmax(pred_softmax, dim=-1)
-                num_correct_preds = (pred_softmax==target).sum()
-                correct_test_preds+=num_correct_preds
-                epoch_loss_test+=batch_loss.cpu().detach().item()
-                n_iters_test+=1
-                preds_test.extend(pred_softmax.cpu().tolist())
-                targets_test.extend(target.cpu().tolist())
+
+                correct_test_preds = (pred_softmax==target).sum()
+                dist.all_reduce(correct_test_preds, op=dist.ReduceOp.SUM)
+
+                total_local = torch.tensor(target.size(0), device=target.device, dtype=torch.long)
+                dist.all_reduce(total_local, op=dist.ReduceOp.SUM)
+                global_accuracy_test = correct_test_preds.item()/total_local.item()
+
+                running_loss_test+=global_batch_loss
+                running_correct_test_preds+=correct_test_preds.item()
+                running_samples_test+=total_local.item()
+
+                preds_test.append(pred_softmax.cpu())
+                targets_test.append(target.cpu())
+
                 
+                # preds_train.append(pred_softmax.cpu())
+                # targets_train.append(target.cpu())
                 
 
-            if i % print_every == 0:
-                print('Batch:{}, Test epoch loss average:{}'.format(i+1, epoch_loss_test/(i+1)))
+                if i % print_every == 0 and verbose:
+                    curr_time = time.time()
+                    minutes = int(curr_time - prev_time)//60
+                    seconds = ((curr_time - prev_time) - int(curr_time - prev_time))*60
+                    print('Batch:{}, Test epoch loss average:{} time delta in minutes:{} seconds:{}'.format(i+1, running_loss_test/(i+1), minutes, seconds))
+                    prev_time = time.time()
 
-        writer.add_scalar("Loss/Test", epoch_loss_test/len(test_dataloader), epoch+1)
-        preds_test = torch.tensor(preds_test)
-        targets_test = torch.tensor(targets_test)
-        f1_score_test = multiclass_f1_score(preds_test, targets_test, num_classes=2, average="micro").item()
-        writer.add_scalar("F1/Test", f1_score_test, epoch+1)
-        average_test_loss_per_epoch = epoch_loss_test/len(test_dataloader)
-        # if use_lr_scheduler:
-        #     scheduler.step(average_val_loss_per_epoch)
+        average_test_loss_per_epoch = running_loss_test/len(test_dataloader)
+        epoch_accuracy_test = running_correct_test_preds/running_samples_test
 
-        print('For epoch:{} the average test loss: {} and the accuracy:{} and F1-micro score: {}'.format(epoch+1, average_test_loss_per_epoch, correct_test_preds/test_dataloader.dataset.__len__(),  f1_score_test))
-        test_losses.append(average_test_loss_per_epoch)
-        
-        if patience_counter>=patience:
-            print('Early stopping at epoch:{}, quitting the program....'.format(epoch+1))
-            break
+        local_preds_test = torch.cat(preds_test, dim=0).to(predictions.device)
+        local_targets_test = torch.cat(targets_test, dim=0).to(predictions.device)
 
-    writer.flush()
-    writer.close()
+        gathered_preds_test = [torch.zeros_like(local_preds_test) for _ in range(world_size)]
+        gathered_targets_test = [torch.zeros_like(local_targets_test) for _ in range(world_size)]
+
+        dist.all_gather(gathered_preds_test, local_preds_test)
+        dist.all_gather(gathered_targets_test, local_targets_test)
+
+        if verbose:
+            global_preds_test = torch.cat(gathered_preds_test, dim=0)
+            global_targets_test = torch.cat(gathered_targets_test, dim=0)
+            epoch_f1_test = multiclass_f1_score(global_preds_test, global_targets_test, num_classes=2, average="micro").item()
+            print(f"\n[Test][Epoch {epoch+1}] "
+                            f"Avg Loss: {average_test_loss_per_epoch:.4f}, "
+                            f"Acc: {epoch_accuracy_test:.4f}, "
+                            f"F1: {epoch_f1_test:.4f}")
+        if verbose:
+                writer.add_scalar("Loss/test", average_test_loss_per_epoch, epoch+1)
+                writer.add_scalar("F1/test", epoch_f1_test, epoch+1)                                
+
+    if verbose:
+        writer.flush()
+        writer.close()
+
 
 
 
@@ -399,8 +519,7 @@ if __name__=='__main__':
     parser.add_argument('--weighted_loss_mlp_fusion', action='store_true', help='if set loss function will be combination of the original pipeline and mlp considered separately')
     parser.add_argument('--mlp_object_path', type=str, default='', help='path to the trained sklearn/pytorch mlp object')
     parser.add_argument('--lda_type', type=str, default='tfidf', help='type of lda, put one out of tfidf or bertopic')
-    parser.add_argument('--captions_data_names_pkl_path', type=str,help='existing experiment_dir having train_val captions')
-    parser.add_argument('--device',type=str,default='cuda:0', help='Use one of cuda:0, cuda:1, ....')
+    parser.add_argument('--captions_data_names_pkl_path', type=str,help='existing dir having train_val test captions and pickle files having video paths')
     parser.add_argument('--ablation_for_caption_modality', action='store_true', help='if set will carry out an ablation experiment removing caption modality, increasing the params for other three modalities')
     parser.add_argument('--resume', action='store_true', help='if set resume training from latest model checkpoint')
     parser.add_argument('--weight_decay',type=float, default=0, help='set weight decay param for the optimizer of choice')
@@ -408,10 +527,12 @@ if __name__=='__main__':
     parser.add_argument('--dropout', type=float, default=0,help='denotes the value of dropout used after modality fusion')
 
     args = parser.parse_args()
-    for arg, value in vars(args).items():
-        print(f"- {arg}: {value}")
+    local_rank, world_size = ddp_setup()
+    verbose = local_rank == 0
+    if verbose:
+        for arg, value in vars(args).items():
+            print(f"- {arg}: {value}")
 
-    device = torch.device(args.device) if args.device else torch.device('cpu')
     weight_decay = args.weight_decay
     use_lr_scheduler = args.use_lr_scheduler
     dropout = args.dropout
@@ -431,6 +552,8 @@ if __name__=='__main__':
     modalities = args.modalities
     ablation_for_caption_modality = args.ablation_for_caption_modality
     
+    
+
     experiment_name = args.experiment_name
     batch_size = args.batch_size
     vanilla_fusion = args.vanilla_fusion
@@ -438,13 +561,14 @@ if __name__=='__main__':
 
     runs_dir = os.path.join(os.getcwd(),'runs')
     experiment_dir = os.path.join(runs_dir, experiment_name)
-    if os.path.exists(experiment_dir) and not resume:
+    if os.path.exists(experiment_dir) and not resume and verbose:
         shutil.rmtree(experiment_dir)
     captions_data_names_pkl_path = args.captions_data_names_pkl_path
     # makedir(runs_dir)
     # makedir(experiment_dir)
     os.makedirs(runs_dir, exist_ok=True)
     os.makedirs(experiment_dir, exist_ok=True)
+
 
     args_dict = vars(args)
     yaml.dump(args_dict, open(os.path.join(experiment_dir,'args.yaml'),'w'), default_flow_style=False)
@@ -503,11 +627,11 @@ if __name__=='__main__':
 
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities
-    UnifiedModel_obj = UnifiedModel(out_dims, intermediate_dims, in_dims, modality_out_dim_mapping, dropout, vanilla_fusion, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj, mlp_object, weighted_loss_mlp_fusion)#.to(device)
+    UnifiedModel_obj = UnifiedModel(out_dims, intermediate_dims, in_dims, modality_out_dim_mapping, dropout, vanilla_fusion, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj, mlp_object, weighted_loss_mlp_fusion).cuda()
+    UnifiedModel_obj = DDP(UnifiedModel_obj, device_ids=[local_rank], gradient_as_bucket_view=True)
     #Breakpoint
     #pdb.set_trace()
-    num_devices = 4
-    UnifiedModel_obj = torch.nn.DataParallel(UnifiedModel_obj, device_ids = [id for id in range(num_devices)]).to(device)
+    #UnifiedModel_obj = torch.nn.DataParallel(UnifiedModel_obj).to(device)
 
     #trainable_weight1, trainable_weight2 = None, None
     trainable_weight2 = None
@@ -531,11 +655,9 @@ if __name__=='__main__':
     
     all_captions_dict = None
     #train_encoded_videos, val_encoded_videos, num_explicit_videos_train, num_non_explicit_videos_train, all_captions_dict = get_train_val_split_videos(root_dir, encoded_videos_path, mlp_fusion=mlp_fusion)
+    #captions_data_names_pkl_path = /home/shaunaks/Explicit-Video-Segment-Classifier-and-Summarizer/CaptionNet/captions_and_gridsearch
     assert os.path.exists(captions_data_names_pkl_path), 'Experiment directory with captions doesn\'t exist'
-    train_videos_path, val_videos_path, test_videos_path = os.path.join(captions_data_names_pkl_path,'train_val_test_videos_pkl/train_videos.pkl'), \
-    os.path.join(captions_data_names_pkl_path,'train_val_test_videos_pkl/val_videos.pkl'), \
-    os.path.join(captions_data_names_pkl_path,'train_val_test_videos_pkl/test_videos.pkl')
-
+    train_videos_path, val_videos_path, test_videos_path = os.path.join(captions_data_names_pkl_path,'train_val_test_videos_pkl/train_videos.pkl'), os.path.join(captions_data_names_pkl_path,'train_val_test_videos_pkl/val_videos.pkl'), os.path.join(captions_data_names_pkl_path,'train_val_test_videos_pkl/test_videos.pkl')
     train_encoded_videos = pickle.load(open(train_videos_path,'rb'))
     val_encoded_videos = pickle.load(open(val_videos_path,'rb'))
     test_encoded_videos = pickle.load(open(test_videos_path,'rb'))
@@ -548,14 +670,15 @@ if __name__=='__main__':
         all_captions_dict, _ = prepare_data(train_captions_df, val_captions_df, test_captions_df, lda_type='bertopic')
         pickle.dump(all_captions_dict, open(captions_path,'wb'))
 
-    # pickle.dump(val_encoded_videos, open(os.path.join(experiment_dir,'val_encoded_video.pkl'), 'wb'))
+
+    # pickle.dump(val_encoded_videos, open(, 'wb'))
     # print('Val videos stored')
     # pickle.dump(train_encoded_videos, open(os.path.join(experiment_dir,'train_encoded_video.pkl'), 'wb'))
     # print('Train videos stored')
 
     if mlp_fusion:
-        all_captions_dict = pickle.load(open(captions_path,'rb'))    
-
+        all_captions_dict = pickle.load(open(captions_path,'rb'))
+    
     train_dataset_dict = {
         'root_dir':root_dir,
         'all_encoded_videos':train_encoded_videos,
@@ -595,16 +718,21 @@ if __name__=='__main__':
     # Assign a weight to each sample in the dataset
     sample_weights = [class_weight_dict[label] for label in train_dataset.labels]
     
-    # Create the sampler
-    sampler = WeightedRandomSampler(
-        weights=sample_weights,
-        num_samples=len(sample_weights),  # You can adjust this number if needed
-        replacement=True,
-        generator=torch.Generator().manual_seed(42)  # Set to True to allow sampling with replacement
-    )
-    
-    train_dataloader, val_dataloader, test_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=collate_fn, num_workers=13),\
-    DataLoader(val_dataset, shuffle=False, batch_size=batch_size, pin_memory=True,  collate_fn=collate_fn, num_workers=13), DataLoader(test_dataset, shuffle=False, batch_size=batch_size, pin_memory=True,  collate_fn=collate_fn, num_workers=13)
+    # Create the WeightedRandomSampler sampler
+    # sampler = WeightedRandomSampler(
+    #     weights=sample_weights,
+    #     num_samples=len(sample_weights),  # You can adjust this number if needed
+    #     replacement=True,
+    #     generator=torch.Generator().manual_seed(42)  # Set to True to allow sampling with replacement
+    # )
+
+    train_sampler = DistributedSampler(train_dataset, shuffle=True)
+    val_sampler = DistributedSampler(val_dataset, shuffle=False)
+    test_sampler = DistributedSampler(test_dataset, shuffle=False)
+
+    train_dataloader, val_dataloader, test_dataloader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, pin_memory=True, collate_fn=collate_fn, num_workers=6),\
+    DataLoader(val_dataset, sampler=val_sampler, batch_size=batch_size, pin_memory=True,  collate_fn=collate_fn, num_workers=6), DataLoader(test_dataset, sampler=test_sampler, batch_size=batch_size, pin_memory=True, collate_fn=collate_fn, num_workers=6)
+
     if weighted_cross_entropy:
         #pdb.set_trace()
         total_videos = num_explicit_videos_train + num_non_explicit_videos_train
@@ -617,7 +745,9 @@ if __name__=='__main__':
     bce_with_logits_loss = None
     if weighted_loss_mlp_fusion:
         bce_with_logits_loss = nn.BCEWithLogitsLoss()
-    print('Training on \n train:{} batches \n val:{} batches \n test:{} batches'.format(len(train_dataloader), len(val_dataloader), len(test_dataloader)))
+    
+    if verbose:
+        print('Training on \n train:{} batches \n val:{} batches'.format(len(train_dataloader)*world_size, len(val_dataloader)*world_size))
 
     train_val_arg_dict = {
         'unifiedmodel_obj':UnifiedModel_obj, 
@@ -630,12 +760,12 @@ if __name__=='__main__':
         'experiment_path':experiment_dir,
         'loss':loss_,
         'bce_with_logits_loss':bce_with_logits_loss,
-        'device':device,
         'use_lr_scheduler':use_lr_scheduler,
         #'trainable_weight1':trainable_weight1,
         'trainable_weight2':trainable_weight2
     }
     train_val(**train_val_arg_dict)
+    dist.destroy_process_group()
 
 
 

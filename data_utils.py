@@ -9,7 +9,7 @@ import pickle
 import pandas as pd
 from tqdm import tqdm
 from video_utils import EncodeVideo
-from moviepy.editor import VideoFileClip
+from moviepy.video.io.VideoFileClip import VideoFileClip
 from text_utils import GetTextFromAudio, TokenizeText
 from audio_utils import GetSpectrogramFromAudio
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip

@@ -11,7 +11,7 @@ from skimage.util import img_as_float32
 from skimage.transform import resize
 from skimage.color import gray2rgb
 from torchvision.transforms import Resize
-import moviepy.editor as mp 
+from moviepy.video.io.VideoFileClip import VideoFileClip
 #class GetSpectrogramFromAudio:
 
 def makedir(dir_):
@@ -28,7 +28,7 @@ class GetSpectrogramFromAudio:
     def get_spectrogram(self, vid_file_name):
         #fn = chr(95).join(vid.name.split(chr(46))[:-1])
         #Convert to WAV
-        clip = mp.VideoFileClip(str(vid_file_name))
+        clip = VideoFileClip(str(vid_file_name))
         # if clip.duration > self.threshold:
         #     raise ValueError('The video is greater than 5 minutes')
         
