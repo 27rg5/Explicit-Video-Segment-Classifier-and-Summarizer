@@ -168,6 +168,13 @@ def train_val(**train_val_arg_dict):
 
         for i, modality_inputs in enumerate(train_dataloader):
             _, transformed_video, processed_speech, spectrogram, caption, target = modality_inputs
+            # if i==1:
+            #     print(f'video tensor is :{transformed_video[0].is_pinned()} {transformed_video[1].is_pinned()}\n \
+            #     caption tensor is :{caption.is_pinned()} \n \
+            #     target tensor is :{target.is_pinned()}')
+            #     #break
+            #     return
+
             #Breakpoint
             #pdb.set_trace()
             if isinstance(transformed_video, list):
@@ -224,6 +231,7 @@ def train_val(**train_val_arg_dict):
         targets_train = torch.tensor(targets_train)
         f1_score_train = multiclass_f1_score(preds_train, targets_train, num_classes=2, average="micro").item()
         writer.add_scalar("F1/train", f1_score_train, epoch+1)
+        writer.add_scalar("Learning_rate", optimizer.param_groups[0]['lr'], epoch+1)
         average_train_loss_per_epoch = epoch_loss_train/len(train_dataloader)
         print('For epoch:{} the average train loss: {} and the accuracy: {} and F1-micro score: {}'.format(epoch+1, average_train_loss_per_epoch, correct_train_preds/train_dataloader.dataset.__len__(), f1_score_train))
         train_losses.append(average_train_loss_per_epoch)
@@ -369,7 +377,7 @@ def train_val(**train_val_arg_dict):
 
         print('For epoch:{} the average test loss: {} and the accuracy:{} and F1-micro score: {}'.format(epoch+1, average_test_loss_per_epoch, correct_test_preds/test_dataloader.dataset.__len__(),  f1_score_test))
         test_losses.append(average_test_loss_per_epoch)
-        
+
         if patience_counter>=patience:
             print('Early stopping at epoch:{}, quitting the program....'.format(epoch+1))
             break
@@ -503,11 +511,11 @@ if __name__=='__main__':
 
     intermediate_dims = 50
     self_attention = not pairwise_attention_modalities
-    UnifiedModel_obj = UnifiedModel(out_dims, intermediate_dims, in_dims, modality_out_dim_mapping, dropout, vanilla_fusion, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj, mlp_object, weighted_loss_mlp_fusion)#.to(device)
+    UnifiedModel_obj = UnifiedModel(out_dims, intermediate_dims, in_dims, modality_out_dim_mapping, dropout, vanilla_fusion, self_attention, LanguageModel_obj, VideoModel_obj, SpectrogramModel_obj, mlp_object, weighted_loss_mlp_fusion).to(device)
     #Breakpoint
     #pdb.set_trace()
-    num_devices = 4
-    UnifiedModel_obj = torch.nn.DataParallel(UnifiedModel_obj, device_ids = [id for id in range(num_devices)]).to(device)
+    # num_devices = 4
+    # UnifiedModel_obj = torch.nn.DataParallel(UnifiedModel_obj, device_ids = [id for id in range(num_devices)]).to(device)
 
     #trainable_weight1, trainable_weight2 = None, None
     trainable_weight2 = None
@@ -603,8 +611,8 @@ if __name__=='__main__':
         generator=torch.Generator().manual_seed(42)  # Set to True to allow sampling with replacement
     )
     
-    train_dataloader, val_dataloader, test_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=collate_fn, num_workers=13),\
-    DataLoader(val_dataset, shuffle=False, batch_size=batch_size, pin_memory=True,  collate_fn=collate_fn, num_workers=13), DataLoader(test_dataset, shuffle=False, batch_size=batch_size, pin_memory=True,  collate_fn=collate_fn, num_workers=13)
+    train_dataloader, val_dataloader, test_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=collate_fn, num_workers=10),\
+    DataLoader(val_dataset, shuffle=False, batch_size=batch_size, pin_memory=True,  collate_fn=collate_fn, num_workers=10), DataLoader(test_dataset, shuffle=False, batch_size=batch_size, pin_memory=True,  collate_fn=collate_fn, num_workers=10)
     if weighted_cross_entropy:
         #pdb.set_trace()
         total_videos = num_explicit_videos_train + num_non_explicit_videos_train

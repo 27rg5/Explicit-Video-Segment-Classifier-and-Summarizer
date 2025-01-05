@@ -95,7 +95,6 @@ def inference_on_val(videos_pkl, eval_dataset_type, checkpoint_path, root_dir_pa
     'root_dir':root_dir_path,
     'all_encoded_videos':videos,
     'encoded_video_obj':EncodeVideo_obj,
-    'device':device,
     'modalities':modalities,
     'all_captions_dict':all_captions_dict
     }
@@ -159,13 +158,14 @@ def inference_on_val(videos_pkl, eval_dataset_type, checkpoint_path, root_dir_pa
                 pred_softmax = torch.argmax(pred_softmax, dim=-1)
                 preds_val.extend(pred_softmax.cpu().tolist())
                 targets_val.extend(target.cpu().tolist())
-                videos.extend(video_path)
+                videos.extend(video_paths)
             
-            batches_done = i+1
-            elapsed_time = time.time() - start_time
-            avg_time_per_batch = elapsed_time / batches_done
-            remaining_time = avg_time_per_batch * (len(val_dataloader) - batches_done)
-            print(f'Batch:{batches_done}/{len(val_dataloader)} | Remaining time:{remaining_time//60}m {remaining_time%60}s')
+            if run_caption_model:
+                batches_done = i+1
+                elapsed_time = time.time() - start_time
+                avg_time_per_batch = elapsed_time / batches_done
+                remaining_time = avg_time_per_batch * (len(val_dataloader) - batches_done)
+                print(f'Batch:{batches_done}/{len(val_dataloader)} | Remaining time:{remaining_time//60}m {remaining_time%60}s')
 
     if not run_caption_model:
         targets_val = torch.tensor(targets_val)
@@ -181,13 +181,15 @@ def inference_on_val(videos_pkl, eval_dataset_type, checkpoint_path, root_dir_pa
 
 
         print(f'f1-score:{round(multiclass_f1_score(preds_val, targets_val, num_classes=2, average="micro").item()*100, 2)}')
-    csv_file.close()
+    else:
+        csv_file.close()
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir_path', type=str, default=os.path.join(os.path.expanduser('~'), 'cls_data_1_min'), help='path where videos will be stored in the form of root_folder/encoded_videos/<class>/video_dir/video_subclips/<video_file>')
     parser.add_argument('--run_caption_model', action='store_true', help='if set runs the caption (natural language summary) generation model for the dataset in question')
     parser.add_argument('--experiment_name', type=str, default='', help='Name of the experiment run, a directory will be created by this name having the logs, evaluations and model weights')
+    parser.add_argument('--captions_data_names_pkl_path', type=str, help='existing experiment_dir having train_val captions')
     parser.add_argument('--get_classified_list', action='store_true', help='if set will save the results for each video clip in a csv file')
     parser.add_argument('--pairwise_attention_modalities', action='store_true', help='if set then late fusion will have cross modal attention instead of self attention')
     parser.add_argument('--vanilla_fusion', action='store_true', help='if set late fusion will be simple concatenation')
@@ -215,6 +217,7 @@ if __name__=='__main__':
     vanilla_fusion = args.vanilla_fusion
     eval_dataset_type = args.eval_dataset_type
     modalities = args.modalities
+    captions_data_names_pkl_path = args.captions_data_names_pkl_path
 
     runs_dir = os.path.join(os.getcwd(),'runs')
     experiment_dir = os.path.join(runs_dir, experiment_name)
@@ -226,9 +229,11 @@ if __name__=='__main__':
             mlp_object = joblib.load(mlp_object_path)
         else:
             mlp_object = torch.load(mlp_object_path, map_location=torch.device('cuda:1'))
-        all_captions_dict = pickle.load(open(os.path.join(experiment_dir,'all_captions.pkl'),'rb'))
+        #all_captions_dict = pickle.load(open(os.path.join(experiment_dir,'all_captions.pkl'),'rb'))
+        captions_path = os.path.join(captions_data_names_pkl_path,'captions/all_captions.pkl')
+        all_captions_dict = pickle.load(open(captions_path,'rb'))
 
-    videos_pkl = os.path.join(experiment_dir,f'{eval_dataset_type}_videos.pkl' )
+    videos_pkl = os.path.join(captions_data_names_pkl_path,f'train_val_test_videos_pkl/{eval_dataset_type}_videos.pkl' )
     checkpoint_path = None
     if not run_caption_model:
         checkpoint_path = os.path.join(os.getcwd(),'runs',experiment_name, 'best_checkpoint.pth')

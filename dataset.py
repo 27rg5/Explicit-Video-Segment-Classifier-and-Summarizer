@@ -11,6 +11,56 @@ from torch.utils.data import Dataset, DataLoader
 
 from torch.nn.utils.rnn import pad_sequence
 
+# class CustomBatchWithPinMemory:
+#     def __init__(self, batch):
+#         video_encs, audio_encs, spectrogram_encs, captions, classes = zip(*batch)
+        
+#         #Breakpoint
+#         #pdb.set_trace()
+#         if isinstance(video_encs[0], list):
+#             fast_path = torch.stack([video[0].squeeze(0) for video in video_encs])
+#             slow_path = torch.stack([video[1].squeeze(0) for video in video_encs])
+#             self.video_encs = [fast_path, slow_path]
+#         else:
+#             self.video_encs = torch.Tensor(video_encs)
+        
+#         if isinstance(spectrogram_encs[0], int):
+#             self.spectrogram_encs = torch.Tensor(spectrogram_encs) 
+#         else:
+#             self.spectrogram_encs = torch.stack(spectrogram_encs)
+
+#         if not isinstance (audio_encs[0], int):
+#             input_ids = [enc['input_ids'].squeeze(0) for enc in audio_encs]
+#             attention_masks = [enc['attention_mask'].squeeze(0) for enc in audio_encs]
+
+#             # Pad sequences to the same length
+#             input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=0)
+#             attention_masks_padded = pad_sequence(attention_masks, batch_first=True, padding_value=0)
+
+#             # Create a new BatchEncoding with the padded sequences
+#             self.audio_encs_padded = {
+#                 'input_ids': input_ids_padded,
+#                 'attention_mask': attention_masks_padded
+#             }
+#         else:
+#             self.audio_encs_padded = torch.Tensor(audio_encs)
+#         # Batch captions (if needed, depeinput_idsnding on their format)
+#         if not isinstance(captions[0], int):
+#             self.captions = torch.stack(captions)  # Assumes captions are tensors of uniform size
+#         else:
+#             self.captions = torch.Tensor(captions)
+#         # Batch targets (classes)
+        
+#         self.classes = torch.tensor(classes)  # Shape: [batch_size]
+
+#     def pin_memory(self):
+#         self.video_encs[0] = self.video_encs[0].pin_memory()
+#         self.video_encs[1] = self.video_encs[1].pin_memory()
+#         return self
+
+# def collate_fn(batch):
+#     return CustomBatchWithPinMemory(batch)
+
 def collate_fn(batch):
 
     video_paths, video_encs, audio_encs, spectrogram_encs, captions, classes = zip(*batch)
